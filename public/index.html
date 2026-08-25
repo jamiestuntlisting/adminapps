@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Apps · StuntListing</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="live" class="sr-only" aria-live="polite"></div>
+<div id="toast" class="toast" aria-hidden="true" hidden></div>
+
+<!-- Sign-in -->
+<section id="login" class="login" hidden>
+  <div class="login-card">
+    <div class="login-brand" aria-hidden="true">⚡</div>
+    <h1>Admin Apps</h1>
+    <p class="login-sub">StuntListing team launcher</p>
+    <div id="profiles" class="profiles"></div>
+    <form id="loginForm" class="login-form">
+      <label for="loginName">Your name</label>
+      <input id="loginName" name="name" autocomplete="username" required maxlength="40" placeholder="e.g. Jamie">
+      <div id="pwRow" hidden>
+        <label for="loginPw">Team password</label>
+        <input id="loginPw" name="password" type="password" autocomplete="current-password">
+      </div>
+      <p id="loginErr" class="form-err" role="alert" hidden></p>
+      <button class="btn btn-accent btn-big" type="submit">Sign in</button>
+    </form>
+  </div>
+</section>
+
+<!-- App -->
+<div id="app" class="app" hidden>
+  <header class="topbar">
+    <a class="brand" href="#/all"><span aria-hidden="true">⚡</span> <span class="brand-name">Admin Apps</span></a>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Search apps…  ( / )" aria-label="Search apps" autocomplete="off">
+    </div>
+    <div class="topbar-tools">
+      <div class="textsize" role="group" aria-label="Text size">
+        <button id="textDown" class="btn btn-ghost" aria-label="Smaller text">A−</button>
+        <span id="textPct" class="text-pct">100%</span>
+        <button id="textUp" class="btn btn-ghost" aria-label="Larger text">A+</button>
+      </div>
+      <button id="themeBtn" class="btn btn-ghost" aria-label="Switch light/dark theme">🌙</button>
+      <details id="userMenu" class="menu">
+        <summary id="userChip" aria-label="Account menu"></summary>
+        <div class="menu-pop">
+          <a href="/api/export" download="adminapps-export.json">Export data (JSON)</a>
+          <button id="helpBtn" type="button">Help &amp; shortcuts</button>
+          <button id="logoutBtn" type="button">Sign out</button>
+        </div>
+      </details>
+    </div>
+  </header>
+  <div class="shell">
+    <nav id="sidebar" class="sidebar" aria-label="Pages"></nav>
+    <main id="main" class="main"></main>
+  </div>
+</div>
+
+<!-- Add / edit link -->
+<dialog id="linkDialog" class="dlg">
+  <form id="linkForm" novalidate>
+    <h2 id="linkDlgTitle">Add link</h2>
+    <label for="lfName">Name</label>
+    <input id="lfName" required maxlength="80" placeholder="e.g. Ghost Admin" autocomplete="off">
+    <label for="lfUrl">URL</label>
+    <input id="lfUrl" required maxlength="2000" inputmode="url" placeholder="stuntlisting.com/admin" autocomplete="off">
+    <label for="lfProject">Page</label>
+    <select id="lfProject"></select>
+    <div class="row2">
+      <div>
+        <label for="lfIcon">Icon <small>(emoji, optional)</small></label>
+        <input id="lfIcon" maxlength="8" placeholder="🚀" autocomplete="off">
+      </div>
+      <div>
+        <span class="label">Color</span>
+        <div id="lfColors" class="swatches"></div>
+      </div>
+    </div>
+    <label for="lfDesc">Note <small>(optional — keep it short)</small></label>
+    <input id="lfDesc" maxlength="90" autocomplete="off">
+    <p id="lfErr" class="form-err" role="alert" hidden></p>
+    <div class="dlg-foot">
+      <button type="button" id="lfDelete" class="btn btn-danger-ghost" hidden>Delete…</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" class="btn btn-accent">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Add / edit page -->
+<dialog id="projectDialog" class="dlg">
+  <form id="projectForm" novalidate>
+    <h2 id="projDlgTitle">New page</h2>
+    <label for="pfName">Page name</label>
+    <input id="pfName" required maxlength="60" placeholder="e.g. StuntListing Site" autocomplete="off">
+    <span class="label">Color</span>
+    <div id="pfColors" class="swatches"></div>
+    <p id="pfErr" class="form-err" role="alert" hidden></p>
+    <div class="dlg-foot">
+      <button type="button" id="pfDelete" class="btn btn-danger-ghost" hidden>Delete…</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" class="btn btn-accent">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Confirm -->
+<dialog id="confirmDialog" class="dlg dlg-sm">
+  <h2 id="cfTitle"></h2>
+  <p id="cfMsg" class="cf-msg"></p>
+  <div class="dlg-foot">
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="cfNo">Cancel</button>
+    <button type="button" class="btn btn-danger" id="cfYes">Delete</button>
+  </div>
+</dialog>
+
+<!-- Help -->
+<dialog id="helpDialog" class="dlg">
+  <h2>Help &amp; shortcuts</h2>
+  <dl class="keys">
+    <dt><kbd>/</kbd></dt><dd>Search</dd>
+    <dt><kbd>n</kbd></dt><dd>Add a link</dd>
+    <dt><kbd>Alt</kbd> + <kbd>arrows</kbd></dt><dd>Move the focused tile or page (Custom order)</dd>
+    <dt><kbd>Alt</kbd> + <kbd>+</kbd> / <kbd>−</kbd></dt><dd>Text size</dd>
+    <dt><kbd>Esc</kbd></dt><dd>Clear search / close dialog</dd>
+    <dt><kbd>?</kbd></dt><dd>This help</dd>
+  </dl>
+  <p class="help-note">Drag tiles to rearrange them (sort must be “Custom order”). Your layout, favorites, text size and theme are saved to the server — links and pages are shared with the whole team.</p>
+  <div class="dlg-foot"><span class="spacer"></span><button class="btn" data-close>Close</button></div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

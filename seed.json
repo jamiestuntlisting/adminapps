@@ -1,0 +1,9 @@
+{
+  "projects": [
+    { "name": "StuntListing", "color": "#f76b15" }
+  ],
+  "links": [
+    { "project": "StuntListing", "name": "Live Site", "url": "https://stuntlisting.com", "icon": "🎬" },
+    { "project": "StuntListing", "name": "Staging", "url": "https://site.staging.stuntlisting.com", "icon": "🧪" }
+  ]
+}

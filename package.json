@@ -1,0 +1,12 @@
+{
+  "name": "adminapps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "StuntListing admin apps launcher — self-hosted, per-user pages organized by project.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
