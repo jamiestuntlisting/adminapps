@@ -35,18 +35,23 @@ npm run dev          # http://localhost:8090
 ## Deploy
 
 Pushes to the default branch deploy automatically via
-[.github/workflows/deploy.yml](.github/workflows/deploy.yml). The workflow
-applies `schema.sql` (idempotent) and then runs `wrangler deploy`.
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml), which runs
+`wrangler deploy`. You can also run it by hand from the Actions tab
+(`workflow_dispatch`).
 
-It needs one repository secret:
+It needs one repository secret, set under
+**Settings → Secrets and variables → Actions**:
 
 | Secret | Required | Notes |
 | --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | yes | "Edit Cloudflare Workers" template, plus D1 edit |
+| `CLOUDFLARE_API_TOKEN` | yes | "Edit Cloudflare Workers" template |
 | `CLOUDFLARE_ACCOUNT_ID` | only if the token can see more than one account | |
 
-Set them under **Settings → Secrets and variables → Actions**. You can also
-run the workflow by hand from the Actions tab (`workflow_dispatch`).
+**Schema changes are not automatic.** Applying `schema.sql` goes through D1's
+import endpoint, which needs `D1 Edit` on the token — the deploy token doesn't
+have it. After editing `schema.sql`, run `npm run db:remote` yourself from a
+machine logged in via `wrangler login`. (Grant the token D1 Edit and the step
+can move into the workflow; it's commented at the top of the file.)
 
 To deploy from your own machine instead:
 
