@@ -7,6 +7,7 @@ A launcher for the StuntListing admin team — like the StuntListing apps page, 
 - **Sorting.** Drag tiles (and sidebar pages) to rearrange, or switch to A→Z / Recently added. Keyboard: `Alt`+arrows moves the focused tile.
 - **Built for heavy users.** Short names, tiny optional notes, no clutter. `/` to search everything, `Enter` opens the first hit, `n` to add a link.
 - **Low-vision friendly.** A−/A+ scales the entire interface from 100% to 225% (persisted per user), high-contrast dark and light themes, full keyboard support, visible focus rings, screen-reader announcements.
+- **Analytics.** An Analytics section mirrors the Notion "Profiles Analytics" database — current value, trend sparkline, change since the previous reading, and the SQL Notion stores for each metric, grouped by category.
 - **Desktop-first.** Wide grid and sidebar; it degrades acceptably on small screens but the desktop is the point.
 
 No frontend framework and no build step — the browser gets the same `public/` files that are in the repo.
@@ -74,9 +75,39 @@ The app is a name-based profile picker by default — fine behind a VPN, not fin
 
 Optionally `npx wrangler secret put SESSION_SECRET` to pin the cookie-signing key; otherwise one is generated into the D1 `meta` table on first use.
 
+## Analytics
+
+The Analytics section is a read-through cache of the Notion **Profiles
+Analytics** database. Each metric carries its current number, the dated
+readings from Notion's "Historical Record" field (rendered as a trend line and
+a change-since-last-reading), and the SQL that defines it.
+
+**Those queries are not executed here.** They are MySQL, written against the
+production `db` (`db.user`, `db.skill_sets`, `db.activity_log`, …), which this
+Worker has no route to. The app shows each query so an admin can read or copy
+it, and links back to the Notion row where the existing update flow lives.
+Notion remains the source of truth; "Sync from Notion" re-pulls.
+
+To enable the sync:
+
+1. Create an internal integration at <https://www.notion.so/my-integrations>
+   and copy its secret.
+2. `npx wrangler secret put NOTION_TOKEN`
+3. In Notion, open the Profiles Analytics database → **⋯ → Connections** → add
+   that integration. Without this the API returns no rows.
+
+`NOTION_DATABASE_ID` in `wrangler.toml` points at the database; change it there
+to sync a different one. A sync replaces the cached rows wholesale, so metrics
+deleted in Notion disappear here too. A failed sync leaves the last good cache
+in place.
+
+If you ever want the numbers refreshed *here* rather than in Notion, that needs
+a route from the Worker to the production MySQL — Cloudflare Hyperdrive plus a
+read-only user would be the path. None is configured today.
+
 ## Data
 
-Three tables in D1: `projects`, `links`, and `users` (each user's layout as JSON in `users.prefs`). Grab a full dump any time from **Export data (JSON)** in the user menu (`GET /api/export`).
+Four tables in D1: `projects`, `links`, `users` (each user's layout as JSON in `users.prefs`), and `metrics` (the Notion analytics cache). Grab a full dump any time from **Export data (JSON)** in the user menu (`GET /api/export`).
 
 `seed.json` is loaded exactly once, the first time the app runs against an empty database — a `meta` row records that it happened, so redeploys never duplicate it. Edit it before first launch to change the starting catalog; after that, add links in the UI.
 
@@ -91,6 +122,8 @@ Three tables in D1: `projects`, `links`, and `users` (each user's layout as JSON
 | `PUT` | `/api/prefs` | Save this user's layout |
 | `POST`/`PATCH`/`DELETE` | `/api/projects[/:id]` | Manage pages |
 | `POST`/`PATCH`/`DELETE` | `/api/links[/:id]` | Manage links |
+| `GET` | `/api/metrics` | Cached analytics metrics + last sync time |
+| `POST` | `/api/metrics/sync` | Re-pull the metrics from Notion |
 | `GET` | `/api/export` | Full JSON dump |
 
 Deleting a page moves its links to Unsorted rather than deleting them. Deleting either scrubs the id out of every user's saved layout, so nobody is left with a dangling favorite.

@@ -54,6 +54,8 @@ function textOn(bg) {
 const S = {
   me: null, prefs: null, projects: [], links: [],
   q: '', route: { kind: 'all' },
+  metrics: null, metricsSyncedAt: null, notionConfigured: false, metricsError: null,
+  metricsLoading: false, openMetric: null, metricCount: null,
 };
 let editingLink = null;
 let editingProject = null;
@@ -80,6 +82,7 @@ function applyState(st) {
   S.prefs = st.prefs;
   S.projects = st.projects;
   S.links = st.links;
+  if (typeof st.metricCount === 'number') S.metricCount = st.metricCount;
   applyChrome();
   render();
 }
@@ -258,9 +261,271 @@ function favoriteLinks() {
   return items;
 }
 
+/* ---------- analytics ---------- */
+
+const CAT_COLOR = { Skills: '#e5484d', Users: '#3e82f7', Views: '#f76b15', newsletter: '#d6409f' };
+const catColor = (c) => CAT_COLOR[c] || hashColor(c || 'Other');
+
+const fmtNum = (n) => (typeof n === 'number' && isFinite(n) ? n.toLocaleString() : '—');
+
+function fmtDate(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function relTime(ms) {
+  if (!ms) return 'never';
+  const days = Math.floor((Date.now() - ms) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return days + ' days ago';
+  const months = Math.round(days / 30.44);
+  if (months < 24) return months + (months === 1 ? ' month ago' : ' months ago');
+  return Math.round(days / 365.25) + ' years ago';
+}
+
+/* Change between the two most recent dated readings. */
+function delta(m) {
+  const h = m.history || [];
+  if (h.length < 2) return null;
+  const cur = h[h.length - 1].v;
+  const prev = h[h.length - 2].v;
+  const diff = cur - prev;
+  if (!diff) return null;
+  return { diff, pct: prev ? (diff / prev) * 100 : null, since: Date.parse(h[h.length - 2].t) };
+}
+
+/* Inline SVG trend line. Decorative — the numbers around it carry the meaning. */
+function sparkline(history, color) {
+  const pts = (history || []).filter((p) => isFinite(p.v));
+  if (pts.length < 2) return null;
+  const W = 100, H = 28, PAD = 2;
+  const vals = pts.map((p) => p.v);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = hi - lo || 1;
+  const x = (i) => PAD + (i / (pts.length - 1)) * (W - PAD * 2);
+  const y = (v) => H - PAD - ((v - lo) / span) * (H - PAD * 2);
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+  const area = `${d} L${x(pts.length - 1).toFixed(1)},${H} L${x(0).toFixed(1)},${H} Z`;
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('class', 'spark');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const fill = document.createElementNS(svg.namespaceURI, 'path');
+  fill.setAttribute('d', area);
+  fill.setAttribute('fill', color);
+  fill.setAttribute('opacity', '0.14');
+  const line = document.createElementNS(svg.namespaceURI, 'path');
+  line.setAttribute('d', d);
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', '2');
+  line.setAttribute('stroke-linejoin', 'round');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('vector-effect', 'non-scaling-stroke');
+  svg.append(fill, line);
+  return svg;
+}
+
+async function loadMetrics(force) {
+  if (S.metricsLoading) return;
+  if (S.metrics && !force) return;
+  S.metricsLoading = true;
+  try {
+    const d = await api('/api/metrics');
+    S.metrics = d.metrics;
+    S.metricsSyncedAt = d.syncedAt;
+    S.notionConfigured = d.notionConfigured;
+    S.metricsError = null;
+  } catch (e) {
+    S.metricsError = e.message;
+  } finally {
+    S.metricsLoading = false;
+    render(); // the sidebar carries a metric count, so refresh both panes
+  }
+}
+
+async function syncMetrics(btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Syncing…';
+  announce('Syncing metrics from Notion');
+  try {
+    const r = await api('/api/metrics/sync', { method: 'POST' });
+    await loadMetrics(true);
+    announce(`Synced ${r.count} metrics from Notion`);
+  } catch (e) {
+    S.metricsError = e.message;
+    renderMain();
+    announce('Sync failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+function metricCategories() {
+  const seen = new Map();
+  for (const m of S.metrics || []) seen.set(m.category, (seen.get(m.category) || 0) + 1);
+  return [...seen.entries()].map(([name, count]) => ({ name, count }));
+}
+
+function copyText(text, btn) {
+  const done = () => { const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = t; }, 1200); announce('Query copied'); };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done).catch(() => fallback());
+  else fallback();
+  function fallback() {
+    const ta = h('textarea', { class: 'sr-only' });
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch { announce('Copy failed — select the text manually'); }
+    ta.remove();
+  }
+}
+
+function metricCard(m) {
+  const color = catColor(m.category);
+  const d = delta(m);
+  const open = S.openMetric === m.id;
+  const trend = d ? (d.diff > 0 ? 'up' : 'down') : 'flat';
+  const deltaText = d
+    ? `${d.diff > 0 ? '+' : '−'}${Math.abs(d.diff).toLocaleString()}${d.pct != null && isFinite(d.pct) ? ` (${d.diff > 0 ? '+' : '−'}${Math.abs(d.pct).toFixed(d.pct >= 10 ? 0 : 1)}%)` : ''}`
+    : '';
+
+  const spark = sparkline(m.history, color);
+  const readings = (m.history || []).length;
+
+  return h('div', { class: 'metric' + (open ? ' open' : ''), role: 'listitem' },
+    h('button', {
+      class: 'metric-head', type: 'button',
+      'aria-expanded': String(open),
+      onclick: () => { S.openMetric = open ? null : m.id; renderMain(); },
+    },
+      h('span', { class: 'metric-top' },
+        h('span', { class: 'metric-dot', style: `background:${color}`, 'aria-hidden': 'true' }),
+        h('span', { class: 'metric-name', text: m.name })),
+      h('span', { class: 'metric-figure' },
+        h('span', { class: 'metric-value', text: fmtNum(m.value) }),
+        d ? h('span', { class: 'metric-delta ' + trend, text: deltaText }) : null),
+      spark ? h('span', { class: 'metric-spark' }, spark) : null,
+      h('span', { class: 'metric-foot' },
+        h('span', { text: m.measuredAt ? 'Measured ' + relTime(m.measuredAt) : 'No reading date' }),
+        readings > 1 ? h('span', { class: 'metric-readings', text: readings + ' readings' }) : null)),
+    open ? metricDetail(m, d) : null);
+}
+
+function metricDetail(m, d) {
+  const rows = (m.history || []).slice().reverse().slice(0, 8);
+  return h('div', { class: 'metric-detail' },
+    m.notes ? h('p', { class: 'metric-notes', text: m.notes }) : null,
+    m.query
+      ? h('div', { class: 'metric-sql' },
+          h('div', { class: 'metric-sql-head' },
+            h('span', { class: 'label-sm', text: 'Query (MySQL, runs against the production db)' }),
+            h('button', {
+              class: 'btn btn-sm', type: 'button',
+              onclick: (e) => copyText(m.query, e.currentTarget),
+            }, 'Copy'))
+          , h('pre', { class: 'sql', tabindex: '0' }, h('code', { text: m.query })))
+      : h('p', { class: 'metric-notes', text: 'No query recorded in Notion for this metric.' }),
+    rows.length
+      ? h('div', { class: 'metric-history' },
+          h('span', { class: 'label-sm', text: 'Readings' }),
+          h('table', { class: 'hist' },
+            h('tbody', {}, ...rows.map((p) => h('tr', {},
+              h('td', { class: 'hist-v', text: p.v.toLocaleString() }),
+              h('td', { class: 'hist-t', text: fmtDate(Date.parse(p.t)) }))))))
+      : null,
+    d && d.since
+      ? h('p', { class: 'metric-notes', text: `Change measured against the reading from ${fmtDate(d.since)}.` })
+      : null,
+    m.notionUrl
+      ? h('a', { class: 'metric-link', href: m.notionUrl, target: '_blank', rel: 'noopener' },
+          'Open in Notion to refresh this number →')
+      : null);
+}
+
+function renderAnalytics(main) {
+  const r = S.route;
+
+  if (S.metrics === null) {
+    loadMetrics();
+    main.append(h('div', { class: 'page-head' }, h('h1', { text: 'Analytics' })));
+    main.append(h('div', { class: 'empty' }, S.metricsError || 'Loading…'));
+    return;
+  }
+
+  const cats = metricCategories();
+  const all = S.metrics;
+  const q = S.q.trim().toLowerCase();
+  const inCat = r.category ? all.filter((m) => m.category === r.category) : all;
+  const shown = q
+    ? inCat.filter((m) => (m.name + ' ' + m.category + ' ' + (m.query || '')).toLowerCase().includes(q))
+    : inCat;
+
+  const syncBtn = h('button', { class: 'btn btn-accent', type: 'button' }, 'Sync from Notion');
+  syncBtn.addEventListener('click', () => syncMetrics(syncBtn));
+
+  main.append(h('div', { class: 'page-head' },
+    h('h1', { text: r.category ? r.category : 'Analytics' }),
+    h('span', { class: 'count', text: String(shown.length) }),
+    h('span', { class: 'spacer' }),
+    h('span', { class: 'synced', text: 'Synced ' + relTime(S.metricsSyncedAt) }),
+    syncBtn));
+
+  if (S.metricsError) {
+    main.append(h('div', { class: 'banner' }, S.metricsError));
+  }
+
+  if (!all.length) {
+    main.append(h('div', { class: 'empty' },
+      h('b', { text: 'Nothing synced yet' }),
+      S.notionConfigured
+        ? 'Hit “Sync from Notion” to pull the metrics in.'
+        : 'Add a Notion token first: wrangler secret put NOTION_TOKEN — then share the Profiles Analytics database with that integration and hit Sync.'));
+    return;
+  }
+
+  if (cats.length > 1) {
+    const chips = h('div', { class: 'chips' },
+      h('a', { class: 'chip' + (!r.category ? ' on' : ''), href: '#/analytics', text: `All (${all.length})` }),
+      ...cats.map((c) => h('a', {
+        class: 'chip' + (r.category === c.name ? ' on' : ''),
+        href: '#/analytics/' + encodeURIComponent(c.name),
+      },
+        h('span', { class: 'chip-dot', style: `background:${catColor(c.name)}`, 'aria-hidden': 'true' }),
+        `${c.name} (${c.count})`)));
+    main.append(chips);
+  }
+
+  if (!shown.length) {
+    main.append(h('div', { class: 'empty' }, h('b', { text: 'Nothing matches' }), 'Try fewer letters.'));
+    return;
+  }
+
+  if (r.category || q) {
+    main.append(h('div', { class: 'metrics', role: 'list' }, ...shown.map(metricCard)));
+  } else {
+    for (const c of cats) {
+      const items = shown.filter((m) => m.category === c.name);
+      if (!items.length) continue;
+      main.append(
+        sectionHead(c.name, catColor(c.name), '#/analytics/' + encodeURIComponent(c.name)),
+        h('div', { class: 'metrics', role: 'list' }, ...items.map(metricCard)));
+    }
+  }
+}
+
 /* ---------- routing ---------- */
 
 function parseRoute() {
+  const a = location.hash.match(/^#\/analytics(?:\/(.+))?$/);
+  if (a) return { kind: 'analytics', category: a[1] ? decodeURIComponent(a[1]) : null };
   const m = location.hash.match(/^#\/(all|favorites|unsorted|p\/(.+))$/);
   if (!m) return { kind: 'all' };
   if (m[2]) return { kind: 'project', id: m[2] };
@@ -318,6 +583,12 @@ function renderSidebar() {
   if (unsortedCount) {
     kids.push(navLink({ href: '#/unsorted', icon: '▢', name: 'Unsorted', count: unsortedCount, active: route.kind === 'unsorted' }));
   }
+  kids.push(h('div', { class: 'nav-label', text: 'Data' }));
+  kids.push(navLink({
+    href: '#/analytics', icon: '📈', name: 'Analytics',
+    count: S.metrics ? S.metrics.length : S.metricCount,
+    active: route.kind === 'analytics',
+  }));
   kids.push(h('button', { class: 'btn nav-new', type: 'button', onclick: () => openProjectDialog(null) }, '+ New page'));
   kids.push(h('p', { class: 'nav-hint', text: 'Drag to rearrange · Alt+arrows' }));
   nav.replaceChildren(...kids);
@@ -392,6 +663,7 @@ function renderMain() {
   const main = $('#main');
   main.replaceChildren();
 
+  if (S.route.kind === 'analytics') return renderAnalytics(main);
   if (S.q.trim()) return renderSearch(main);
 
   const r = S.route;

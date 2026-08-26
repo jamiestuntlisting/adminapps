@@ -12,6 +12,7 @@ import seed from '../seed.json';
 import {
   now, uid, str, isHex, slugify, cleanUrl,
   defaultPrefs, sanitizePrefs, rowToProject, rowToLink,
+  parseHistory, notionProp, rowToMetric,
 } from './lib.js';
 
 const COOKIE = 'alsid';
@@ -127,6 +128,81 @@ async function seedIfEmpty(env) {
   if (stmts.length) await env.DB.batch(stmts);
 }
 
+/* ---------- notion sync ---------- */
+
+const NOTION_DB_ID = (env) => env.NOTION_DATABASE_ID || '';
+const NOTION_DB_URL = (env) =>
+  NOTION_DB_ID(env) ? 'https://www.notion.so/' + NOTION_DB_ID(env).replace(/-/g, '') : '';
+
+/*
+ * Pulls every row of the Notion analytics database. Notion holds both the
+ * number and the SQL that produced it; we keep both so an admin can see
+ * exactly how a metric is defined.
+ */
+async function fetchNotionMetrics(env) {
+  const dbId = NOTION_DB_ID(env);
+  if (!dbId) throw new Error('NOTION_DATABASE_ID is not set in wrangler.toml');
+
+  const out = [];
+  let cursor;
+  for (let page = 0; page < 20; page++) { // hard stop; the database is ~50 rows
+    const base = env.NOTION_API_BASE || 'https://api.notion.com';
+    const res = await fetch(`${base}/v1/databases/${dbId}/query`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.NOTION_TOKEN}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cursor ? { page_size: 100, start_cursor: cursor } : { page_size: 100 }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Notion API ${res.status}${detail ? ' — ' + detail.slice(0, 200) : ''}`);
+    }
+    const data = await res.json();
+    for (const p of data.results || []) {
+      const props = p.properties || {};
+      const name = notionProp(props.Name);
+      if (!name) continue; // untitled placeholder rows
+      const history = parseHistory(notionProp(props['Historical Record']) || '');
+      out.push({
+        id: p.id,
+        name,
+        category: notionProp(props.Category) || 'Other',
+        value: notionProp(props.Quantity),
+        query: notionProp(props.Query) || '',
+        notes: notionProp(props.Notes) || '',
+        notionUrl: p.url || '',
+        history,
+        measuredAt: history.length
+          ? Date.parse(history[history.length - 1].t)
+          : (p.last_edited_time ? Date.parse(p.last_edited_time) : null),
+      });
+    }
+    if (!data.has_more) break;
+    cursor = data.next_cursor;
+  }
+  return out;
+}
+
+/* Replaces the cache wholesale so metrics deleted in Notion disappear here too. */
+async function storeMetrics(env, rows) {
+  const stamp = now();
+  const stmts = [env.DB.prepare('DELETE FROM metrics')];
+  rows.forEach((m, i) => {
+    stmts.push(env.DB.prepare(
+      `INSERT INTO metrics (id, name, category, value, query, notes, notion_url, history, measured_at, sort_order, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(m.id, m.name, m.category, m.value, m.query, m.notes, m.notionUrl,
+        JSON.stringify(m.history), m.measuredAt, i, stamp));
+  });
+  stmts.push(env.DB.prepare(
+    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .bind('metrics_synced_at', String(stamp)));
+  await env.DB.batch(stmts);
+}
+
 /* ---------- api ---------- */
 
 const loginFails = new Map(); // best-effort, per-isolate
@@ -228,15 +304,18 @@ async function api(request, env, url) {
   if (!user) return fail(401, 'Sign in required.');
 
   if (path === '/api/state' && method === 'GET') {
-    const [projects, links] = await env.DB.batch([
+    const [projects, links, metrics] = await env.DB.batch([
       env.DB.prepare('SELECT * FROM projects ORDER BY created_at'),
       env.DB.prepare('SELECT * FROM links ORDER BY created_at'),
+      env.DB.prepare('SELECT COUNT(*) AS n FROM metrics'),
     ]);
     return json({
       me: { id: user.id, name: user.name },
       prefs: user.prefs,
       projects: (projects.results || []).map(rowToProject),
       links: (links.results || []).map(rowToLink),
+      // Just the count: the sidebar badge shouldn't wait on the metrics fetch.
+      metricCount: metrics.results?.[0]?.n ?? 0,
     });
   }
 
@@ -295,6 +374,35 @@ async function api(request, env, url) {
     ]);
     await pruneFromAllPrefs(env, { projectId: row.id });
     return json({ ok: true });
+  }
+
+  /* ----- analytics ----- */
+
+  if (path === '/api/metrics' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM metrics ORDER BY category, sort_order, name').all();
+    const last = await env.DB.prepare('SELECT value FROM meta WHERE key = ?')
+      .bind('metrics_synced_at').first();
+    return json({
+      metrics: (results || []).map(rowToMetric),
+      syncedAt: last?.value ? Number(last.value) : null,
+      notionConfigured: !!env.NOTION_TOKEN,
+      sourceUrl: NOTION_DB_URL(env),
+    });
+  }
+
+  if (path === '/api/metrics/sync' && method === 'POST') {
+    if (!env.NOTION_TOKEN) {
+      return fail(400, 'No Notion token configured. Run: wrangler secret put NOTION_TOKEN');
+    }
+    try {
+      const rows = await fetchNotionMetrics(env);
+      if (!rows.length) return fail(502, 'Notion returned no rows — is the database shared with the integration?');
+      await storeMetrics(env, rows);
+      return json({ ok: true, count: rows.length, syncedAt: now() });
+    } catch (e) {
+      return fail(502, 'Notion sync failed: ' + (e.message || 'unknown error'));
+    }
   }
 
   /* ----- links ----- */

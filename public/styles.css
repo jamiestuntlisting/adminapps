@@ -323,3 +323,77 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---------- analytics ---------- */
+
+.synced { color: var(--dim); font-size: 0.9rem; font-weight: 600; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.1rem; }
+.chip {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.35rem 0.75rem; border-radius: 1.2rem;
+  background: var(--panel); border: 1px solid var(--border);
+  color: inherit; text-decoration: none; font-weight: 600; font-size: 0.92rem;
+}
+.chip:hover { background: var(--active); }
+.chip.on { background: var(--active); border-color: var(--focus); }
+.chip-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex: none; }
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.metric {
+  background: var(--tile); border: 1px solid var(--border); border-radius: 0.85rem;
+  overflow: hidden;
+}
+.metric.open { border-color: var(--focus); grid-column: 1 / -1; }
+.metric-head {
+  display: grid; gap: 0.4rem; width: 100%; text-align: left;
+  padding: 0.85rem 1rem; background: none; border: 0; cursor: pointer; color: inherit;
+}
+.metric-head:hover { background: var(--tile-hover); }
+.metric-top { display: flex; align-items: baseline; gap: 0.5rem; }
+.metric-dot { width: 0.65rem; height: 0.65rem; border-radius: 50%; flex: none; align-self: center; }
+.metric-name { font-weight: 650; overflow-wrap: anywhere; }
+.metric-figure { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.metric-value { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.metric-delta { font-weight: 700; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+.metric-delta.up { color: #30a46c; }
+.metric-delta.down { color: var(--danger); }
+:root[data-theme="light"] .metric-delta.up { color: #1a7f4b; }
+.metric-spark { display: block; height: 1.9rem; max-width: 34rem; }
+.spark { width: 100%; height: 100%; display: block; }
+.metric-foot {
+  display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;
+  color: var(--dim); font-size: 0.85rem;
+}
+.metric-readings { margin-left: auto; }
+
+.metric-detail { padding: 0 1rem 1rem; display: grid; gap: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.9rem; }
+.metric-notes { color: var(--dim); font-size: 0.9rem; }
+.label-sm { color: var(--dim); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.metric-sql-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.35rem; }
+.btn-sm { padding: 0.2rem 0.6rem; font-size: 0.85rem; margin-left: auto; }
+pre.sql {
+  margin: 0; padding: 0.7rem 0.85rem;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 0.55rem;
+  overflow-x: auto; font-size: 0.88rem; line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.hist { border-collapse: collapse; font-size: 0.9rem; }
+.hist td { padding: 0.15rem 1rem 0.15rem 0; }
+.hist-v { font-weight: 700; font-variant-numeric: tabular-nums; }
+.hist-t { color: var(--dim); }
+.metric-link { color: var(--focus); font-weight: 600; text-decoration: none; font-size: 0.9rem; }
+.metric-link:hover { text-decoration: underline; }
+
+.banner {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid var(--danger); color: var(--danger);
+  border-radius: 0.6rem; padding: 0.7rem 0.9rem; margin-bottom: 1rem; font-weight: 600;
+}

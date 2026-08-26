@@ -23,3 +23,8 @@ Cloudflare Worker + D1. See README.md for setup, deploy, and API.
 - Validation lives once, in `src/lib.js`, shared by all routes.
 - Deleting a page or link must scrub its id from every user's saved prefs
   (`pruneFromAllPrefs`) so nobody keeps a dangling favorite.
+- `h(tag, attrs, ...kids)` always needs the attrs object — `h('tbody', ...rows)`
+  silently eats the first child as attrs.
+- Analytics is a cache of the Notion "Profiles Analytics" database. Its SQL is
+  MySQL against the production `db` and is displayed, never executed — the
+  Worker has no route to that database.

@@ -2,6 +2,11 @@ name = "adminapps"
 main = "src/worker.js"
 compatibility_date = "2025-11-01"
 
+# The Notion "Profiles Analytics" database the analytics section syncs from.
+# The token itself is a secret: wrangler secret put NOTION_TOKEN
+[vars]
+NOTION_DATABASE_ID = "b7e294a6-9940-465e-9412-3dd7f1642780"
+
 [assets]
 directory = "./public"
 binding = "ASSETS"
