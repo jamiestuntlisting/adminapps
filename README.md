@@ -34,16 +34,31 @@ npm run dev          # http://localhost:8090
 
 ## Deploy
 
-The D1 database (`adminapps`) already exists and its schema is applied. To ship the Worker:
+Pushes to the default branch deploy automatically via
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml). The workflow
+applies `schema.sql` (idempotent) and then runs `wrangler deploy`.
+
+It needs one repository secret:
+
+| Secret | Required | Notes |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | yes | "Edit Cloudflare Workers" template, plus D1 edit |
+| `CLOUDFLARE_ACCOUNT_ID` | only if the token can see more than one account | |
+
+Set them under **Settings → Secrets and variables → Actions**. You can also
+run the workflow by hand from the Actions tab (`workflow_dispatch`).
+
+To deploy from your own machine instead:
 
 ```bash
-npx wrangler login    # once, opens a browser
+npx wrangler login
 npm run deploy
 ```
 
-That publishes to `adminapps.<your-subdomain>.workers.dev`. To put it on a custom domain (e.g. `apps.stuntlisting.com`), add a route in `wrangler.toml` or map it in the Cloudflare dashboard under Workers → adminapps → Domains & Routes.
-
-If the schema ever needs reapplying: `npm run db:remote`.
+Either way it publishes to `adminapps.<your-subdomain>.workers.dev`. To put it
+on a custom domain (e.g. `apps.stuntlisting.com`), add a route in
+`wrangler.toml` or map it in the Cloudflare dashboard under
+Workers → adminapps → Domains & Routes.
 
 ### Lock it down
 
