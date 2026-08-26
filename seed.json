@@ -1,9 +1,67 @@
 {
   "projects": [
-    { "name": "StuntListing", "color": "#f76b15" }
+    { "name": "StuntListing", "color": "#f76b15" },
+    { "name": "Content & Blog", "color": "#6e56cf" },
+    { "name": "Email & Marketing", "color": "#d6409f" },
+    { "name": "Social", "color": "#3e82f7" },
+    { "name": "Coordinators & Sales", "color": "#30a46c" },
+    { "name": "Job Board & Data", "color": "#12a594" },
+    { "name": "Services & Infra", "color": "#64748b" }
   ],
   "links": [
     { "project": "StuntListing", "name": "Live Site", "url": "https://stuntlisting.com", "icon": "🎬" },
-    { "project": "StuntListing", "name": "Staging", "url": "https://site.staging.stuntlisting.com", "icon": "🧪" }
+    { "project": "StuntListing", "name": "Staging", "url": "https://site.staging.stuntlisting.com", "icon": "🧪" },
+    { "project": "StuntListing", "name": "Training Map", "url": "https://www.stuntlisting.com/training", "icon": "🗺️" },
+    { "project": "StuntListing", "name": "Gym Map Admin", "url": "https://gymmap-iota.vercel.app/admin", "icon": "✅", "desc": "approve new locations" },
+    { "project": "StuntListing", "name": "Gym Map Analytics", "url": "https://gymmap-iota.vercel.app/analytics.html", "icon": "📈" },
+    { "project": "StuntListing", "name": "Shopify Admin", "url": "https://stuntlisting.myshopify.com/admin", "icon": "🛍️" },
+
+    { "project": "Content & Blog", "name": "Ghost Admin", "url": "https://stuntlisting.ghost.io/ghost/", "icon": "📰" },
+    { "project": "Content & Blog", "name": "Blog (live)", "url": "https://stuntlisting.ghost.io/", "icon": "👀" },
+    { "project": "Content & Blog", "name": "YouTube Reels Sheet", "url": "https://docs.google.com/spreadsheets/d/1fzzleXzXMNFhiwg0B6rXnpaga8GgzLHJlAq-x0GIizM", "icon": "▶️", "desc": "new stunt reels tracker" },
+    { "project": "Content & Blog", "name": "Skill Reel Highlights", "url": "https://docs.google.com/spreadsheets/d/1JAE0suZ8vT9rAQ0UFzyUn-6tPbVZZzioiKHf0G3cLWQ/edit?gid=0#gid=0", "icon": "🎞️" },
+    { "project": "Content & Blog", "name": "Production Weekly", "url": "https://drive.google.com/drive/u/0/folders/1se46D2iELI094G7ERf-xXCCrkx880fX5", "icon": "📁" },
+    { "project": "Content & Blog", "name": "Canva", "url": "https://www.canva.com", "icon": "🎨" },
+
+    { "project": "Email & Marketing", "name": "Mailchimp", "url": "https://login.mailchimp.com", "icon": "🐵" },
+    { "project": "Email & Marketing", "name": "MailJet", "url": "https://app.mailjet.com", "icon": "✉️" },
+    { "project": "Email & Marketing", "name": "Email Supersheet", "url": "https://docs.google.com/spreadsheets/d/1UmrKeWiOc4RL_nQbVgHpkV2sRJ0Kfs6PkGIVuMD6GOc/edit#gid=1475049309", "icon": "📊" },
+    { "project": "Email & Marketing", "name": "Send Schedule", "url": "https://docs.google.com/spreadsheets/d/1WTVZyEmcYHR1YFlSemB_NmZ1kAVYPizEtNBBOejYnRQ/edit?gid=0#gid=0", "icon": "🗓️", "desc": "email + social schedule" },
+    { "project": "Email & Marketing", "name": "Swag Giveaway", "url": "https://docs.google.com/spreadsheets/d/1KDZJ5p7YtW_YWtcr7aeYtbesTB96NPLwq_zSw__32lI/edit?gid=0#gid=0", "icon": "🎁" },
+    { "project": "Email & Marketing", "name": "Typeform", "url": "https://admin.typeform.com", "icon": "📝" },
+
+    { "project": "Social", "name": "Instagram", "url": "https://www.instagram.com", "icon": "📸" },
+    { "project": "Social", "name": "Facebook Business", "url": "https://business.facebook.com", "icon": "👥" },
+    { "project": "Social", "name": "Later", "url": "https://app.later.com", "icon": "⏰" },
+    { "project": "Social", "name": "LinkTree", "url": "https://linktr.ee/admin", "icon": "🌲" },
+    { "project": "Social", "name": "Mention", "url": "https://web.mention.com", "icon": "🔔" },
+    { "project": "Social", "name": "YouTube Studio", "url": "https://studio.youtube.com", "icon": "📹" },
+
+    { "project": "Coordinators & Sales", "name": "Contact History", "url": "https://docs.google.com/spreadsheets/d/1z_V_msba3PNUqZIFuKVI_ujI8IpOsWO5B6daxFzST6g/edit?gid=0#gid=0", "icon": "🤝" },
+    { "project": "Coordinators & Sales", "name": "No-Phone List", "url": "https://docs.google.com/spreadsheets/d/1PHmljg4Q7Rz8jYanct2HG8sfJyiTThaqTKm8zQqlAJo/edit?gid=0#gid=0", "icon": "📵" },
+    { "project": "Coordinators & Sales", "name": "Mailing & Swag", "url": "https://docs.google.com/spreadsheets/d/15vsXV-WbjJcTkLT4ogQqOG4usD4HjKiHMou3i41WQuY/edit?gid=0#gid=0", "icon": "📦" },
+    { "project": "Coordinators & Sales", "name": "Lara’s Contacts", "url": "https://docs.google.com/document/d/1VvHksExhu0Bo2CDa6U6GgirY_hji8is-shUA1ptoVYI/edit", "icon": "👤" },
+    { "project": "Coordinators & Sales", "name": "Profile Reviews", "url": "https://docs.google.com/spreadsheets/d/1zcXCleXT7SssgZNG9fjH_qDTgNloR2Qd1VO8dwgFbm4/edit?gid=0#gid=0", "icon": "⭐" },
+
+    { "project": "Job Board & Data", "name": "Job Board Admin", "url": "https://docs.google.com/spreadsheets/d/1oKkkmmWvEIRBWUqWtxKc7ej78ngiFS738RTLlcaj6IE/edit?gid=0#gid=0", "icon": "💼" },
+    { "project": "Job Board & Data", "name": "Job Board Updates", "url": "https://docs.google.com/spreadsheets/d/1r6uO-wHal7y5ZTgS9Ww88oNR-peBL5FteEo03v_6xxo/edit?gid=0#gid=0", "icon": "🛠️" },
+    { "project": "Job Board & Data", "name": "Survey Data 2024", "url": "https://docs.google.com/spreadsheets/d/1Ict_a5MHbegsVYK819BeXOLQ6KHqMu6a01FoeliDJUU/edit?gid=244140315#gid=244140315", "icon": "🗳️" },
+    { "project": "Job Board & Data", "name": "Breakdown Tips", "url": "https://docs.google.com/spreadsheets/d/1-1AftEeb2VoGeKGCMGeja3DGfV0arP_PW7u4wLnH4yE/edit?gid=0#gid=0", "icon": "💡" },
+    { "project": "Job Board & Data", "name": "Wrap Dates", "url": "https://docs.google.com/spreadsheets/d/1nXQkc1xKxcKnMktRqnuLFiKZK59kgdqH_FGi0KT3lAg/edit?gid=0#gid=0", "icon": "🏁" },
+
+    { "project": "Services & Infra", "name": "Stripe", "url": "https://dashboard.stripe.com", "icon": "💳" },
+    { "project": "Services & Infra", "name": "Cloudflare", "url": "https://dash.cloudflare.com", "icon": "☁️" },
+    { "project": "Services & Infra", "name": "AWS Console", "url": "https://console.aws.amazon.com", "icon": "🧰" },
+    { "project": "Services & Infra", "name": "GoDaddy", "url": "https://account.godaddy.com", "icon": "🌐" },
+    { "project": "Services & Infra", "name": "Twilio", "url": "https://console.twilio.com", "icon": "📞" },
+    { "project": "Services & Infra", "name": "Printful", "url": "https://www.printful.com/dashboard", "icon": "👕" },
+    { "project": "Services & Infra", "name": "Notion", "url": "https://www.notion.so", "icon": "📓" },
+    { "project": "Services & Infra", "name": "Trello", "url": "https://trello.com", "icon": "📋" },
+    { "project": "Services & Infra", "name": "Miro", "url": "https://miro.com", "icon": "🧠" },
+    { "project": "Services & Infra", "name": "Zoom", "url": "https://zoom.us", "icon": "🎥" },
+    { "project": "Services & Infra", "name": "Dropbox", "url": "https://www.dropbox.com/home", "icon": "🗃️" },
+    { "project": "Services & Infra", "name": "Google Drive", "url": "https://drive.google.com", "icon": "📂" },
+    { "project": "Services & Infra", "name": "Dropmark", "url": "https://app.dropmark.com", "icon": "🔖" },
+    { "project": "Services & Infra", "name": "Stunt Calendar", "url": "https://calendar.google.com", "icon": "📅" }
   ]
 }

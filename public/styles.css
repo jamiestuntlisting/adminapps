@@ -176,7 +176,7 @@ h1, h2, h3, p { margin: 0; }
 }
 .nav-item:hover { background: var(--active); }
 .nav-ico { width: 1.2rem; text-align: center; flex: none; }
-.nav-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-name { overflow-wrap: anywhere; }
 .nav-count {
   margin-left: auto; color: var(--dim); font-size: 0.82rem; font-weight: 600;
   background: var(--active); border-radius: 1rem; padding: 0.05rem 0.5rem;

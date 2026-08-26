@@ -2,11 +2,15 @@
   "name": "adminapps",
   "version": "1.0.0",
   "private": true,
-  "description": "StuntListing admin apps launcher — self-hosted, per-user pages organized by project.",
+  "description": "StuntListing admin apps launcher — Cloudflare Worker + D1, per-user pages organized by project.",
   "scripts": {
-    "start": "node server.js"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 execute adminapps --local --file=./schema.sql",
+    "db:remote": "wrangler d1 execute adminapps --remote --file=./schema.sql",
+    "tail": "wrangler tail"
   },
-  "engines": {
-    "node": ">=18"
+  "devDependencies": {
+    "wrangler": "^4.42.0"
   }
 }

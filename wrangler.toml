@@ -1,0 +1,15 @@
+name = "adminapps"
+main = "src/worker.js"
+compatibility_date = "2025-11-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "adminapps"
+database_id = "89101d86-aaab-482b-ba6f-235a758e01d1"
+
+[observability]
+enabled = true
