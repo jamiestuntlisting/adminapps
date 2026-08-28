@@ -33,3 +33,9 @@ Cloudflare Worker + D1. See README.md for setup, deploy, and API.
   tests only; never set it in production.
 - The cron fires only collectors flagged `auto`. Adding a collector must not
   make anything run on its own.
+- `metrics.source` decides ownership: a Notion sync replaces only `notion` rows
+  and skips Notion rows whose name is already `ingest`-owned. Breaking that
+  either wipes pushed-in numbers or duplicates the metric.
+- `/api/metrics/ingest` is the one route outside the session wall — it is
+  guarded by `INGEST_TOKEN` because Zapier cannot log in. It reads the body
+  parsed by `api()`; reading `request` again throws.

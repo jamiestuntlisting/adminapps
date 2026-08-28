@@ -55,7 +55,7 @@ const S = {
   me: null, prefs: null, projects: [], links: [],
   q: '', route: { kind: 'all' },
   metrics: null, metricsSyncedAt: null, notionConfigured: false, metricsError: null,
-  metricsLoading: false, openMetric: null, metricCount: null,
+  metricsLoading: false, openMetric: null, metricCount: null, ingestEnabled: false,
   views: [], collectors: [], runs: [], collecting: false,
 };
 let editingLink = null;
@@ -343,6 +343,7 @@ async function loadMetrics(force) {
     S.metrics = d.metrics;
     S.metricsSyncedAt = d.syncedAt;
     S.notionConfigured = d.notionConfigured;
+    S.ingestEnabled = !!d.ingestEnabled;
     S.views = v.views;
     S.collectors = c.collectors;
     S.runs = c.runs;
@@ -421,6 +422,7 @@ function metricCard(m) {
       spark ? h('span', { class: 'metric-spark' }, spark) : null,
       h('span', { class: 'metric-foot' },
         h('span', { text: m.measuredAt ? 'Measured ' + relTime(m.measuredAt) : 'No reading date' }),
+        m.source === 'ingest' ? h('span', { class: 'tag tag-quiet', title: 'Pushed straight in by Zapier', text: 'direct' }) : null,
         readings > 1 ? h('span', { class: 'metric-readings', text: readings + ' readings' }) : null)),
     open ? metricDetail(m, d) : null);
 }
@@ -490,10 +492,16 @@ function renderAnalytics(main) {
 
   if (!all.length) {
     main.append(h('div', { class: 'empty' },
-      h('b', { text: 'Nothing synced yet' }),
-      S.notionConfigured
-        ? 'Hit “Sync from Notion” to pull the metrics in.'
-        : 'Add a Notion token first: wrangler secret put NOTION_TOKEN — then share the Profiles Analytics database with that integration and hit Sync.'));
+      h('b', { text: 'No metrics yet' }),
+      h('p', {}, 'Two ways to fill this in — either or both:'),
+      h('p', {}, h('b', { text: '1. Pull from Notion. ' }),
+        S.notionConfigured
+          ? 'Ready — hit “Sync from Notion”.'
+          : 'Run wrangler secret put NOTION_TOKEN, share the Profiles Analytics database with that integration, then hit Sync.'),
+      h('p', {}, h('b', { text: '2. Have Zapier post them here directly. ' }),
+        S.ingestEnabled
+          ? 'Ready — POST to /api/metrics/ingest with your ingest token. This skips Notion entirely.'
+          : 'Run wrangler secret put INGEST_TOKEN, then add a webhook step to each Zap posting to /api/metrics/ingest. This skips Notion entirely.')));
     return;
   }
 

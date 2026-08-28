@@ -149,6 +149,7 @@ export const rowToMetric = (r) => ({
   history: (() => { try { return JSON.parse(r.history || '[]'); } catch { return []; } })(),
   measuredAt: r.measured_at,
   syncedAt: r.synced_at,
+  source: r.source || 'notion',
 });
 
 /* ---------- collection + views ---------- */

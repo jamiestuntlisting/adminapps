@@ -49,10 +49,14 @@ CREATE TABLE IF NOT EXISTS metrics (
   history     TEXT NOT NULL DEFAULT '[]', -- JSON [{t,v}] parsed from Historical Record
   measured_at INTEGER,                    -- newest dated reading, ms
   sort_order  INTEGER NOT NULL DEFAULT 0,
-  synced_at   INTEGER NOT NULL
+  synced_at   INTEGER NOT NULL,
+  -- 'notion' rows are replaced wholesale by a sync; 'ingest' rows are pushed
+  -- in by Zapier and survive it, so a metric can be weaned off Notion.
+  source      TEXT NOT NULL DEFAULT 'notion'
 );
 
 CREATE INDEX IF NOT EXISTS metrics_category_idx ON metrics(category);
+CREATE INDEX IF NOT EXISTS metrics_source_idx ON metrics(source);
 
 -- Collection triggers: the Zapier catch hooks that go off and refresh the
 -- numbers. Admin-entered in the UI, never committed to the repo.

@@ -187,14 +187,23 @@ async function fetchNotionMetrics(env) {
   return out;
 }
 
-/* Replaces the cache wholesale so metrics deleted in Notion disappear here too. */
+/*
+ * Replaces the Notion-sourced rows wholesale, so metrics deleted in Notion
+ * disappear here too. Rows pushed in by Zapier (source 'ingest') are left
+ * alone, and a Notion row is skipped when a metric of that name is already
+ * ingest-owned — otherwise weaning a metric off Notion would show it twice.
+ */
 async function storeMetrics(env, rows) {
   const stamp = now();
-  const stmts = [env.DB.prepare('DELETE FROM metrics')];
-  rows.forEach((m, i) => {
+  const { results } = await env.DB.prepare(
+    "SELECT name FROM metrics WHERE source = 'ingest'").all();
+  const owned = new Set((results || []).map((r) => r.name));
+
+  const stmts = [env.DB.prepare("DELETE FROM metrics WHERE source = 'notion'")];
+  rows.filter((m) => !owned.has(m.name)).forEach((m, i) => {
     stmts.push(env.DB.prepare(
-      `INSERT INTO metrics (id, name, category, value, query, notes, notion_url, history, measured_at, sort_order, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      `INSERT INTO metrics (id, name, category, value, query, notes, notion_url, history, measured_at, sort_order, synced_at, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'notion')`)
       .bind(m.id, m.name, m.category, m.value, m.query, m.notes, m.notionUrl,
         JSON.stringify(m.history), m.measuredAt, i, stamp));
   });
@@ -267,6 +276,72 @@ async function scheduledCollection(env) {
     }
   }
   return collectors.length;
+}
+
+/* ---------- ingest ---------- */
+
+/*
+ * Lets a Zap post numbers straight into the app instead of into Notion.
+ * Authenticated with the INGEST_TOKEN secret rather than a session cookie,
+ * because Zapier has no login. Body is one reading or an array of them:
+ *   { "name": "Total Users", "value": 6481, "category": "Users", "query": "…" }
+ */
+async function ingestMetrics(request, env, body) {
+  if (!env.INGEST_TOKEN) return fail(503, 'Ingest is not enabled. Run: wrangler secret put INGEST_TOKEN');
+
+  const auth = request.headers.get('Authorization') || '';
+  const supplied = auth.startsWith('Bearer ') ? auth.slice(7) : new URL(request.url).searchParams.get('token') || '';
+  if (!supplied || !(await secretEquals(supplied, env.INGEST_TOKEN))) return fail(401, 'Bad ingest token.');
+
+  // api() has already read and parsed the body; reading it again throws.
+  const items = Array.isArray(body) ? body : Array.isArray(body.metrics) ? body.metrics : [body];
+  if (!items.length) return fail(400, 'Nothing to ingest.');
+  if (items.length > 200) return fail(400, 'Too many metrics in one post (max 200).');
+
+  const stamp = now();
+  const stmts = [];
+  const accepted = [];
+  const skipped = [];
+
+  for (const it of items) {
+    const name = str(it?.name, 80);
+    // Zapier often sends numbers as strings, sometimes with separators.
+    const rawVal = typeof it?.value === 'string' ? it.value.replace(/[, ]/g, '') : it?.value;
+    const value = Number(rawVal);
+    if (!name || rawVal === undefined || rawVal === null || rawVal === '' || !isFinite(value)) {
+      skipped.push({ name: name || '(unnamed)', why: 'needs a name and a numeric value' });
+      continue;
+    }
+
+    const existing = await env.DB.prepare('SELECT * FROM metrics WHERE name = ?').bind(name).first();
+    let history = [];
+    if (existing) {
+      try { history = JSON.parse(existing.history || '[]'); } catch { history = []; }
+    }
+    // One reading per post; keep the tail bounded so history can't grow forever.
+    history.push({ t: new Date(stamp).toISOString(), v: value });
+    history = history.slice(-120);
+
+    const category = str(it?.category, 60) || existing?.category || 'Other';
+    const query = str(it?.query, 4000) || existing?.query || '';
+    const notes = str(it?.notes, 140) || existing?.notes || '';
+
+    if (existing) {
+      stmts.push(env.DB.prepare(
+        `UPDATE metrics SET value = ?, category = ?, query = ?, notes = ?, history = ?,
+         measured_at = ?, synced_at = ?, source = 'ingest' WHERE id = ?`)
+        .bind(value, category, query, notes, JSON.stringify(history), stamp, stamp, existing.id));
+    } else {
+      stmts.push(env.DB.prepare(
+        `INSERT INTO metrics (id, name, category, value, query, notes, notion_url, history, measured_at, sort_order, synced_at, source)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, 999, ?, 'ingest')`)
+        .bind(uid(), name, category, value, query, notes, JSON.stringify(history), stamp, stamp));
+    }
+    accepted.push({ name, value });
+  }
+
+  if (stmts.length) await env.DB.batch(stmts);
+  return json({ ok: true, accepted: accepted.length, skipped, metrics: accepted });
 }
 
 /* ---------- api ---------- */
@@ -359,6 +434,8 @@ async function api(request, env, url) {
   }
 
   if (path === '/api/login' && method === 'POST') return handleLogin(request, env, body);
+
+  if (path === '/api/metrics/ingest' && method === 'POST') return ingestMetrics(request, env, body);
 
   if (path === '/api/logout' && method === 'POST') {
     return json({ ok: true }, {
@@ -453,6 +530,7 @@ async function api(request, env, url) {
       metrics: (results || []).map(rowToMetric),
       syncedAt: last?.value ? Number(last.value) : null,
       notionConfigured: !!env.NOTION_TOKEN,
+      ingestEnabled: !!env.INGEST_TOKEN,
       sourceUrl: NOTION_DB_URL(env),
     });
   }

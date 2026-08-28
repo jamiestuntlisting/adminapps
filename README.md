@@ -10,6 +10,7 @@ A launcher for the StuntListing admin team — like the StuntListing apps page, 
 - **Analytics.** Mirrors the Notion "Profiles Analytics" database — current value, trend sparkline, change since the previous reading, and the SQL Notion stores for each metric.
 - **Saved views.** Build your own views over those metrics: pick categories or individual metrics, show them as tiles, a table, bars, or trend lines, sorted how you like. Shared with the team.
 - **Collection.** The Zapier hooks that refresh the numbers become buttons in the app. Click to collect now, or flag a trigger to run daily on its own. Every run is logged with who asked for it.
+- **Direct ingest.** Zaps can post their numbers straight into the app, so metrics can live here without Notion in the loop at all.
 - **Desktop-first.** Wide grid and sidebar; it degrades acceptably on small screens but the desktop is the point.
 
 No frontend framework and no build step — the browser gets the same `public/` files that are in the repo.
@@ -103,9 +104,51 @@ to sync a different one. A sync replaces the cached rows wholesale, so metrics
 deleted in Notion disappear here too. A failed sync leaves the last good cache
 in place.
 
-If you ever want the numbers refreshed *here* rather than in Notion, that needs
-a route from the Worker to the production MySQL — Cloudflare Hyperdrive plus a
+If you ever want the numbers *computed* here rather than in Zapier, that needs a
+route from the Worker to the production MySQL — Cloudflare Hyperdrive plus a
 read-only user would be the path. None is configured today.
+
+### Ingest — cutting Notion out
+
+A metric does not have to come from Notion. A Zap can post its result straight
+here, which is the way to stop depending on Notion entirely:
+
+```bash
+npx wrangler secret put INGEST_TOKEN
+```
+
+Then add a **Webhooks by Zapier → POST** step at the end of each Zap:
+
+| Field | Value |
+| --- | --- |
+| URL | `https://<your-worker>/api/metrics/ingest` |
+| Payload type | JSON |
+| Data | `name`, `value`, optionally `category`, `query`, `notes` |
+| Headers | `Authorization: Bearer <your INGEST_TOKEN>` |
+
+Post one reading, or a batch:
+
+```json
+{ "name": "Total Users", "value": 6481, "category": "Users" }
+```
+```json
+{ "metrics": [ { "name": "Total Users", "value": 6481 },
+               { "name": "Listed Users", "value": "4,667" } ] }
+```
+
+Values arriving as strings (`"4,667"`) are coerced; rows without a name and a
+numeric value are skipped and named in the response. If the URL can't carry a
+header, `?token=…` works instead.
+
+Each post appends a dated reading, so trends build up here the way they did in
+Notion's "Historical Record" — no manual appending. History is capped at the
+most recent 120 readings.
+
+**Ingest wins over Notion for a given metric name.** A posted metric is marked
+`ingest` and survives "Sync from Notion"; a Notion row of the same name is
+skipped rather than duplicated. So you can move metrics across one Zap at a
+time, and the tile shows a small `direct` tag once a metric is fed this way.
+Sync still replaces every `notion`-sourced row as before.
 
 ### Views
 
@@ -155,6 +198,7 @@ Seven tables in D1: `projects`, `links`, `users` (each user's layout as JSON in 
 | `POST`/`PATCH`/`DELETE` | `/api/links[/:id]` | Manage links |
 | `GET` | `/api/metrics` | Cached analytics metrics + last sync time |
 | `POST` | `/api/metrics/sync` | Re-pull the metrics from Notion |
+| `POST` | `/api/metrics/ingest` | Push readings in from Zapier (INGEST_TOKEN, no session) |
 | `GET` | `/api/views` | Saved views |
 | `POST`/`PATCH`/`DELETE` | `/api/views[/:id]` | Manage views |
 | `GET` | `/api/collectors` | Triggers + the recent run log |
