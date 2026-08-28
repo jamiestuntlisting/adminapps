@@ -56,6 +56,7 @@ const S = {
   q: '', route: { kind: 'all' },
   metrics: null, metricsSyncedAt: null, notionConfigured: false, metricsError: null,
   metricsLoading: false, openMetric: null, metricCount: null,
+  views: [], collectors: [], runs: [], collecting: false,
 };
 let editingLink = null;
 let editingProject = null;
@@ -336,10 +337,15 @@ async function loadMetrics(force) {
   if (S.metrics && !force) return;
   S.metricsLoading = true;
   try {
-    const d = await api('/api/metrics');
+    const [d, v, c] = await Promise.all([
+      api('/api/metrics'), api('/api/views'), api('/api/collectors'),
+    ]);
     S.metrics = d.metrics;
     S.metricsSyncedAt = d.syncedAt;
     S.notionConfigured = d.notionConfigured;
+    S.views = v.views;
+    S.collectors = c.collectors;
+    S.runs = c.runs;
     S.metricsError = null;
   } catch (e) {
     S.metricsError = e.message;
@@ -491,6 +497,8 @@ function renderAnalytics(main) {
     return;
   }
 
+  main.append(viewChips(null));
+
   if (cats.length > 1) {
     const chips = h('div', { class: 'chips' },
       h('a', { class: 'chip' + (!r.category ? ' on' : ''), href: '#/analytics', text: `All (${all.length})` }),
@@ -521,9 +529,244 @@ function renderAnalytics(main) {
   }
 }
 
+/* ---------- views over the metrics ---------- */
+
+const DISPLAYS = [
+  ['tiles', 'Tiles'], ['table', 'Table'], ['bars', 'Bar chart'], ['lines', 'Trend lines'],
+];
+const VIEW_SORTS = [
+  ['name', 'Name (A→Z)'], ['value', 'Value (high→low)'],
+  ['change', 'Biggest change'], ['measured', 'Most recently measured'],
+];
+
+function pctChange(m) {
+  const h = m.history || [];
+  if (h.length < 2) return 0;
+  const prev = h[h.length - 2].v;
+  return prev ? ((h[h.length - 1].v - prev) / prev) * 100 : 0;
+}
+
+/* Mirrors metricsForView in src/lib.js so a view looks the same before a reload. */
+function applyView(config, metrics) {
+  const c = config || {};
+  let out = metrics;
+  if (c.metricIds?.length) {
+    const want = new Set(c.metricIds);
+    out = out.filter((m) => want.has(m.id));
+  } else if (c.categories?.length) {
+    const want = new Set(c.categories);
+    out = out.filter((m) => want.has(m.category));
+  }
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    value: (a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity),
+    change: (a, b) => pctChange(b) - pctChange(a),
+    measured: (a, b) => (b.measuredAt ?? 0) - (a.measuredAt ?? 0),
+  }[c.sort || 'name'];
+  return out.slice().sort(by);
+}
+
+function renderTable(items) {
+  const head = h('tr', {},
+    h('th', { text: 'Metric' }), h('th', { text: 'Category' }),
+    h('th', { class: 'num', text: 'Value' }), h('th', { class: 'num', text: 'Change' }),
+    h('th', { text: 'Measured' }));
+  const rows = items.map((m) => {
+    const d = delta(m);
+    return h('tr', {},
+      h('td', {},
+        h('a', { class: 'tbl-name', href: '#/analytics', onclick: (e) => { e.preventDefault(); S.openMetric = m.id; location.hash = '#/analytics/' + encodeURIComponent(m.category); }, text: m.name })),
+      h('td', {}, h('span', { class: 'tag', style: `background:${catColor(m.category)}22;color:${catColor(m.category)}`, text: m.category })),
+      h('td', { class: 'num strong', text: fmtNum(m.value) }),
+      h('td', { class: 'num ' + (d ? (d.diff > 0 ? 'up' : 'down') : ''), text: d ? (d.diff > 0 ? '+' : '−') + Math.abs(d.diff).toLocaleString() : '—' }),
+      h('td', { class: 'dim', text: m.measuredAt ? fmtDate(m.measuredAt) : '—' }));
+  });
+  return h('div', { class: 'table-wrap' },
+    h('table', { class: 'data' }, h('thead', {}, head), h('tbody', {}, ...rows)));
+}
+
+/* Horizontal bars, log-ish scaled so 500k next to 3k stays readable. */
+function renderBars(items) {
+  const vals = items.map((m) => (typeof m.value === 'number' ? m.value : 0));
+  const max = Math.max(...vals, 1);
+  return h('div', { class: 'bars' }, ...items.map((m) => {
+    const v = typeof m.value === 'number' ? m.value : 0;
+    const color = catColor(m.category);
+    const pct = max ? Math.max(v > 0 ? 1.5 : 0, (v / max) * 100) : 0;
+    const fill = h('span', { class: 'bar-fill' });
+    fill.style.setProperty('width', pct.toFixed(2) + '%');
+    fill.style.setProperty('background', color);
+    return h('div', { class: 'bar-row' },
+      h('span', { class: 'bar-label', text: m.name }),
+      h('span', { class: 'bar-track' }, fill),
+      h('span', { class: 'bar-val', text: fmtNum(m.value) }));
+  }));
+}
+
+function renderLines(items) {
+  const withHistory = items.filter((m) => (m.history || []).length > 1);
+  if (!withHistory.length) {
+    return h('div', { class: 'empty' }, h('b', { text: 'No history to plot' }),
+      'These metrics have fewer than two dated readings in Notion.');
+  }
+  return h('div', { class: 'lines' }, ...withHistory.map((m) => {
+    const color = catColor(m.category);
+    const h2 = m.history;
+    const first = h2[0], last = h2[h2.length - 1];
+    return h('div', { class: 'line-card' },
+      h('div', { class: 'line-head' },
+        h('span', { class: 'metric-dot', style: `background:${color}`, 'aria-hidden': 'true' }),
+        h('span', { class: 'line-name', text: m.name }),
+        h('span', { class: 'line-now', text: fmtNum(m.value) })),
+      h('div', { class: 'line-chart' }, sparkline(h2, color) || ''),
+      h('div', { class: 'line-foot' },
+        h('span', { text: `${first.v.toLocaleString()} · ${fmtDate(Date.parse(first.t))}` }),
+        h('span', { text: `${last.v.toLocaleString()} · ${fmtDate(Date.parse(last.t))}` })));
+  }));
+}
+
+function renderMetricList(items, display) {
+  if (!items.length) {
+    return h('div', { class: 'empty' }, h('b', { text: 'Nothing to show' }),
+      'This view’s filters match no metrics.');
+  }
+  if (display === 'table') return renderTable(items);
+  if (display === 'bars') return renderBars(items);
+  if (display === 'lines') return renderLines(items);
+  return h('div', { class: 'metrics', role: 'list' }, ...items.map(metricCard));
+}
+
+function viewChips(activeId) {
+  return h('div', { class: 'chips' },
+    h('a', { class: 'chip' + (!activeId ? ' on' : ''), href: '#/analytics', text: 'All metrics' }),
+    ...S.views.map((v) => h('a', {
+      class: 'chip' + (activeId === v.id ? ' on' : ''),
+      href: '#/view/' + encodeURIComponent(v.id), text: v.name,
+    })),
+    h('button', { class: 'chip chip-btn', type: 'button', onclick: () => openViewDialog(null) }, '+ New view'),
+    h('a', { class: 'chip chip-quiet', href: '#/collect' }, '⚡ Collection'));
+}
+
+function renderView(main) {
+  const v = S.views.find((x) => x.id === S.route.id);
+  if (!v) { location.hash = '#/analytics'; return; }
+  const items = applyView(v.config, S.metrics || []);
+  const display = v.config.display || 'tiles';
+
+  main.append(h('div', { class: 'page-head' },
+    h('h1', { text: v.name }),
+    h('span', { class: 'count', text: String(items.length) }),
+    h('span', { class: 'spacer' }),
+    h('span', { class: 'synced', text: 'Synced ' + relTime(S.metricsSyncedAt) }),
+    h('button', { class: 'btn', type: 'button', onclick: () => openViewDialog(v) }, 'Edit view')));
+  main.append(viewChips(v.id));
+  main.append(h('p', { class: 'view-meta', text: `${DISPLAYS.find((d) => d[0] === display)?.[1] || 'Tiles'} · sorted by ${VIEW_SORTS.find((x) => x[0] === (v.config.sort || 'name'))?.[1]} · made by ${v.createdBy || 'someone'}` }));
+  main.append(renderMetricList(items, display));
+}
+
+/* ---------- collection ---------- */
+
+async function fireCollect(id, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Collecting…';
+  S.collecting = true;
+  try {
+    const r = await api('/api/collect' + (id ? '/' + id : ''), { method: 'POST' });
+    const bad = r.runs.filter((x) => x.status !== 'ok');
+    announce(bad.length
+      ? `${bad.length} of ${r.runs.length} failed — see the log`
+      : `Collection started (${r.runs.length}) — numbers land in Notion, then sync`);
+  } catch (e) {
+    announce('Collect failed: ' + e.message);
+  } finally {
+    S.collecting = false;
+    btn.disabled = false;
+    btn.textContent = label;
+    await loadMetrics(true);
+  }
+}
+
+function renderCollect(main) {
+  main.append(h('div', { class: 'page-head' },
+    h('h1', { text: 'Collection' }),
+    h('span', { class: 'count', text: String(S.collectors.length) }),
+    h('span', { class: 'spacer' }),
+    h('button', { class: 'btn', type: 'button', onclick: () => openCollectorDialog(null) }, '+ Add trigger'),
+    (() => {
+      const b = h('button', { class: 'btn btn-accent', type: 'button' }, 'Collect all now');
+      b.addEventListener('click', () => fireCollect(null, b));
+      if (!S.collectors.length) b.disabled = true;
+      return b;
+    })()));
+  main.append(viewChips('__collect__'));
+
+  main.append(h('p', { class: 'view-meta' },
+    'Each trigger posts to its webhook — the same Zapier hooks you would click in Notion. ',
+    'Zapier answers immediately and updates the numbers in the background, so hit ',
+    h('a', { href: '#/analytics', text: 'Sync from Notion' }), ' a minute later to pull the new values in.'));
+
+  if (!S.collectors.length) {
+    main.append(h('div', { class: 'empty' },
+      h('b', { text: 'No triggers yet' }),
+      'Add the Zapier catch hook from the Notion page and it becomes a button here.'));
+  } else {
+    main.append(h('div', { class: 'collectors' }, ...S.collectors.map((c) => {
+      const go = h('button', { class: 'btn btn-accent', type: 'button' }, 'Collect now');
+      go.addEventListener('click', () => fireCollect(c.id, go));
+      const auto = h('input', { type: 'checkbox', id: 'auto-' + c.id });
+      auto.checked = c.auto;
+      auto.addEventListener('change', async () => {
+        try {
+          await api('/api/collectors/' + c.id, { method: 'PATCH', body: { auto: auto.checked } });
+          c.auto = auto.checked;
+          announce(auto.checked ? `${c.name} will run daily` : `${c.name} is manual only`);
+        } catch (e) {
+          auto.checked = !auto.checked;
+          announce('Could not save: ' + e.message);
+        }
+      });
+      return h('div', { class: 'collector' },
+        h('div', { class: 'collector-main' },
+          h('div', { class: 'collector-name', text: c.name }),
+          c.notes ? h('div', { class: 'collector-notes', text: c.notes }) : null,
+          h('div', { class: 'collector-url', text: c.url })),
+        h('div', { class: 'collector-side' },
+          h('label', { class: 'auto-toggle', for: 'auto-' + c.id }, auto, ' Run daily'),
+          h('div', { class: 'collector-btns' },
+            go,
+            h('button', { class: 'btn', type: 'button', onclick: () => openCollectorDialog(c) }, 'Edit'))));
+    })));
+  }
+
+  main.append(h('h2', { class: 'sec-title', text: 'Recent runs' }));
+  if (!S.runs.length) {
+    main.append(h('p', { class: 'view-meta', text: 'Nothing has run yet.' }));
+  } else {
+    main.append(h('div', { class: 'table-wrap' },
+      h('table', { class: 'data' },
+        h('thead', {}, h('tr', {},
+          h('th', { text: 'Trigger' }), h('th', { text: 'Who' }),
+          h('th', { text: 'How' }), h('th', { text: 'When' }),
+          h('th', { text: 'Result' }))),
+        h('tbody', {}, ...S.runs.map((r) => h('tr', {},
+          h('td', { text: r.collectorName }),
+          h('td', { text: r.actor }),
+          h('td', {}, h('span', { class: 'tag tag-quiet', text: r.trigger })),
+          h('td', { class: 'dim', text: new Date(r.startedAt).toLocaleString() }),
+          h('td', {}, h('span', {
+            class: 'tag ' + (r.status === 'ok' ? 'tag-ok' : r.status === 'error' ? 'tag-bad' : 'tag-quiet'),
+            title: r.detail || '', text: r.status,
+          }))))))));
+  }
+}
+
 /* ---------- routing ---------- */
 
 function parseRoute() {
+  if (location.hash === '#/collect') return { kind: 'collect' };
+  const v = location.hash.match(/^#\/view\/(.+)$/);
+  if (v) return { kind: 'view', id: decodeURIComponent(v[1]) };
   const a = location.hash.match(/^#\/analytics(?:\/(.+))?$/);
   if (a) return { kind: 'analytics', category: a[1] ? decodeURIComponent(a[1]) : null };
   const m = location.hash.match(/^#\/(all|favorites|unsorted|p\/(.+))$/);
@@ -663,7 +906,17 @@ function renderMain() {
   const main = $('#main');
   main.replaceChildren();
 
-  if (S.route.kind === 'analytics') return renderAnalytics(main);
+  if (S.route.kind === 'analytics' || S.route.kind === 'view' || S.route.kind === 'collect') {
+    if (S.metrics === null) {
+      loadMetrics();
+      main.append(h('div', { class: 'page-head' }, h('h1', { text: 'Analytics' })));
+      main.append(h('div', { class: 'empty' }, S.metricsError || 'Loading…'));
+      return;
+    }
+    if (S.route.kind === 'view') return renderView(main);
+    if (S.route.kind === 'collect') return renderCollect(main);
+    return renderAnalytics(main);
+  }
   if (S.q.trim()) return renderSearch(main);
 
   const r = S.route;
@@ -1023,6 +1276,171 @@ $('#pfDelete').addEventListener('click', async () => {
     announce('Page deleted');
   } catch (ex) {
     showErr($('#pfErr'), ex.message);
+  }
+});
+
+/* ---------- view + collector dialogs ---------- */
+
+let editingView = null;
+let editingCollector = null;
+let viewPick = { cats: new Set(), ids: new Set() };
+
+function fillSelect(sel, pairs, value) {
+  sel.replaceChildren(...pairs.map(([v, label]) => h('option', { value: v, text: label })));
+  sel.value = value;
+}
+
+function renderViewPickers() {
+  const cats = metricCategories();
+  $('#vfCats').replaceChildren(...cats.map((c) => {
+    const on = viewPick.cats.has(c.name);
+    return h('button', {
+      class: 'chip' + (on ? ' on' : ''), type: 'button',
+      'aria-pressed': String(on),
+      onclick: () => {
+        if (on) viewPick.cats.delete(c.name); else viewPick.cats.add(c.name);
+        renderViewPickers();
+      },
+    },
+      h('span', { class: 'chip-dot', style: `background:${catColor(c.name)}`, 'aria-hidden': 'true' }),
+      `${c.name} (${c.count})`);
+  }));
+
+  const q = $('#vfPick').value.trim().toLowerCase();
+  const list = (S.metrics || []).filter((m) => !q || m.name.toLowerCase().includes(q));
+  $('#vfMetrics').replaceChildren(...list.slice(0, 200).map((m) => {
+    const cb = h('input', { type: 'checkbox' });
+    cb.checked = viewPick.ids.has(m.id);
+    cb.addEventListener('change', () => {
+      if (cb.checked) viewPick.ids.add(m.id); else viewPick.ids.delete(m.id);
+      renderViewPickers();
+    });
+    return h('label', { class: 'pick-row' }, cb,
+      h('span', { class: 'pick-dot', style: `background:${catColor(m.category)}`, 'aria-hidden': 'true' }),
+      h('span', { class: 'pick-name', text: m.name }),
+      h('span', { class: 'pick-val', text: fmtNum(m.value) }));
+  }));
+
+  const cfg = currentViewConfig();
+  const n = applyView(cfg, S.metrics || []).length;
+  $('#vfCount').textContent = viewPick.ids.size
+    ? `${viewPick.ids.size} metrics picked — categories ignored while any are picked.`
+    : `${n} metrics match${viewPick.cats.size ? ' these categories' : ' (everything)'}.`;
+}
+
+function currentViewConfig() {
+  return {
+    display: $('#vfDisplay').value,
+    sort: $('#vfSort').value,
+    categories: [...viewPick.cats],
+    metricIds: [...viewPick.ids],
+  };
+}
+
+function openViewDialog(view) {
+  editingView = view;
+  $('#viewDlgTitle').textContent = view ? 'Edit view' : 'New view';
+  $('#vfName').value = view?.name || '';
+  fillSelect($('#vfDisplay'), DISPLAYS, view?.config?.display || 'tiles');
+  fillSelect($('#vfSort'), VIEW_SORTS, view?.config?.sort || 'name');
+  viewPick = {
+    cats: new Set(view?.config?.categories || []),
+    ids: new Set(view?.config?.metricIds || []),
+  };
+  $('#vfPick').value = '';
+  $('#vfDelete').hidden = !view;
+  $('#vfErr').hidden = true;
+  renderViewPickers();
+  $('#viewDialog').showModal();
+  $('#vfName').focus();
+}
+
+$('#vfPick').addEventListener('input', renderViewPickers);
+$('#vfDisplay').addEventListener('change', renderViewPickers);
+$('#vfSort').addEventListener('change', renderViewPickers);
+
+$('#viewForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('#vfErr');
+  const name = $('#vfName').value.trim();
+  if (!name) return showErr(err, 'Give the view a name.');
+  const body = { name, config: currentViewConfig() };
+  try {
+    if (editingView) {
+      await api('/api/views/' + editingView.id, { method: 'PATCH', body });
+      $('#viewDialog').close();
+      await loadMetrics(true);
+      announce('View saved');
+    } else {
+      const v = await api('/api/views', { method: 'POST', body });
+      $('#viewDialog').close();
+      await loadMetrics(true);
+      location.hash = '#/view/' + v.id;
+      announce('View created');
+    }
+  } catch (ex) {
+    showErr(err, ex.message);
+  }
+});
+
+$('#vfDelete').addEventListener('click', async () => {
+  if (!editingView) return;
+  const ok = await confirmDlg({ title: 'Delete view?', msg: `“${editingView.name}” goes away for the whole team. The metrics themselves are untouched.` });
+  if (!ok) return;
+  try {
+    await api('/api/views/' + editingView.id, { method: 'DELETE' });
+    $('#viewDialog').close();
+    location.hash = '#/analytics';
+    await loadMetrics(true);
+    announce('View deleted');
+  } catch (ex) {
+    showErr($('#vfErr'), ex.message);
+  }
+});
+
+function openCollectorDialog(c) {
+  editingCollector = c;
+  $('#colDlgTitle').textContent = c ? 'Edit trigger' : 'Add trigger';
+  $('#cfName').value = c?.name || '';
+  $('#cfUrl').value = c?.url || '';
+  $('#cfNotes').value = c?.notes || '';
+  $('#cfAuto').checked = !!c?.auto;
+  $('#cfDelete').hidden = !c;
+  $('#cfErr2').hidden = true;
+  $('#collectorDialog').showModal();
+  $('#cfName').focus();
+}
+
+$('#collectorForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('#cfErr2');
+  const name = $('#cfName').value.trim();
+  const url = $('#cfUrl').value.trim();
+  if (!name) return showErr(err, 'Give the trigger a name.');
+  if (!url) return showErr(err, 'Paste the webhook URL.');
+  const body = { name, url, notes: $('#cfNotes').value.trim(), auto: $('#cfAuto').checked };
+  try {
+    if (editingCollector) await api('/api/collectors/' + editingCollector.id, { method: 'PATCH', body });
+    else await api('/api/collectors', { method: 'POST', body });
+    $('#collectorDialog').close();
+    await loadMetrics(true);
+    announce(editingCollector ? 'Trigger saved' : 'Trigger added');
+  } catch (ex) {
+    showErr(err, ex.message);
+  }
+});
+
+$('#cfDelete').addEventListener('click', async () => {
+  if (!editingCollector) return;
+  const ok = await confirmDlg({ title: 'Delete trigger?', msg: `“${editingCollector.name}” disappears for everyone. The Zapier hook itself is untouched.` });
+  if (!ok) return;
+  try {
+    await api('/api/collectors/' + editingCollector.id, { method: 'DELETE' });
+    $('#collectorDialog').close();
+    await loadMetrics(true);
+    announce('Trigger deleted');
+  } catch (ex) {
+    showErr($('#cfErr2'), ex.message);
   }
 });
 

@@ -53,3 +53,42 @@ CREATE TABLE IF NOT EXISTS metrics (
 );
 
 CREATE INDEX IF NOT EXISTS metrics_category_idx ON metrics(category);
+
+-- Collection triggers: the Zapier catch hooks that go off and refresh the
+-- numbers. Admin-entered in the UI, never committed to the repo.
+CREATE TABLE IF NOT EXISTS collectors (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  notes      TEXT NOT NULL DEFAULT '',
+  auto       INTEGER NOT NULL DEFAULT 0,  -- include in the scheduled run
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL DEFAULT ''
+);
+
+-- Who collected what, when, and whether they clicked it or the schedule did.
+CREATE TABLE IF NOT EXISTS collection_runs (
+  id             TEXT PRIMARY KEY,
+  collector_id   TEXT,
+  collector_name TEXT NOT NULL,
+  trigger_kind   TEXT NOT NULL,           -- 'manual' | 'scheduled'
+  actor          TEXT NOT NULL,           -- user name, or 'Schedule'
+  status         TEXT NOT NULL,           -- 'ok' | 'error'
+  detail         TEXT NOT NULL DEFAULT '',
+  started_at     INTEGER NOT NULL,
+  finished_at    INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS runs_started_idx ON collection_runs(started_at DESC);
+
+-- Saved views over the metrics. Shared with the team, attributed to whoever
+-- made them, like the link catalog.
+CREATE TABLE IF NOT EXISTS views (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  config     TEXT NOT NULL DEFAULT '{}',  -- JSON: {display, categories, metricIds, sort}
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL DEFAULT ''
+);

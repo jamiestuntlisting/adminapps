@@ -111,6 +111,59 @@
   </form>
 </dialog>
 
+<!-- View builder -->
+<dialog id="viewDialog" class="dlg dlg-wide">
+  <form id="viewForm" novalidate>
+    <h2 id="viewDlgTitle">New view</h2>
+    <label for="vfName">View name</label>
+    <input id="vfName" required maxlength="60" placeholder="e.g. Newsletter numbers" autocomplete="off">
+    <div class="row2b">
+      <div>
+        <label for="vfDisplay">Show as</label>
+        <select id="vfDisplay"></select>
+      </div>
+      <div>
+        <label for="vfSort">Sort by</label>
+        <select id="vfSort"></select>
+      </div>
+    </div>
+    <span class="label">Categories <small>(none = all)</small></span>
+    <div id="vfCats" class="chips chips-pick"></div>
+    <label for="vfPick">Pick metrics <small>(overrides categories)</small></label>
+    <input id="vfPick" placeholder="Filter metrics…" autocomplete="off">
+    <div id="vfMetrics" class="pick-list"></div>
+    <p id="vfCount" class="view-meta"></p>
+    <p id="vfErr" class="form-err" role="alert" hidden></p>
+    <div class="dlg-foot">
+      <button type="button" id="vfDelete" class="btn btn-danger-ghost" hidden>Delete…</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" class="btn btn-accent">Save view</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Collection trigger -->
+<dialog id="collectorDialog" class="dlg">
+  <form id="collectorForm" novalidate>
+    <h2 id="colDlgTitle">Add trigger</h2>
+    <label for="cfName">Name</label>
+    <input id="cfName" required maxlength="60" placeholder="e.g. Membership Data" autocomplete="off">
+    <label for="cfUrl">Webhook URL <small>(the Zapier catch hook)</small></label>
+    <input id="cfUrl" required maxlength="500" placeholder="https://hooks.zapier.com/hooks/catch/…" autocomplete="off">
+    <label for="cfNotes">Note <small>(optional)</small></label>
+    <input id="cfNotes" maxlength="140" placeholder="what this refreshes" autocomplete="off">
+    <label class="auto-toggle"><input type="checkbox" id="cfAuto"> Also run automatically once a day</label>
+    <p id="cfErr2" class="form-err" role="alert" hidden></p>
+    <div class="dlg-foot">
+      <button type="button" id="cfDelete" class="btn btn-danger-ghost" hidden>Delete…</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" class="btn btn-accent">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Confirm -->
 <dialog id="confirmDialog" class="dlg dlg-sm">
   <h2 id="cfTitle"></h2>

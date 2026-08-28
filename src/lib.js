@@ -150,3 +150,96 @@ export const rowToMetric = (r) => ({
   measuredAt: r.measured_at,
   syncedAt: r.synced_at,
 });
+
+/* ---------- collection + views ---------- */
+
+export const DISPLAYS = ['tiles', 'table', 'bars', 'lines'];
+export const VIEW_SORTS = ['name', 'value', 'change', 'measured'];
+
+/*
+ * Collector URLs are entered by admins and fired server-side, so keep them to
+ * public https endpoints — no plain http, no loopback or private hosts.
+ */
+export function cleanHookUrl(raw, opts = {}) {
+  const u = cleanUrl(raw);
+  if (!u) return null;
+  const p = new URL(u);
+  // The loopback/private-range block is the SSRF guard; local dev sets
+  // ALLOW_INSECURE_HOOKS so tests can point at a stub instead of a real hook.
+  if (opts.allowInsecure) return u;
+  if (p.protocol !== 'https:') return null;
+  const host = p.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '[::1]') return null;
+  if (/^(10|127)\./.test(host)) return null;
+  if (/^192\.168\./.test(host)) return null;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return null;
+  if (/^169\.254\./.test(host)) return null;
+  if (/^0\./.test(host)) return null;
+  return u;
+}
+
+export function sanitizeViewConfig(patch) {
+  const c = patch && typeof patch === 'object' ? patch : {};
+  const out = {
+    display: DISPLAYS.includes(c.display) ? c.display : 'tiles',
+    sort: VIEW_SORTS.includes(c.sort) ? c.sort : 'name',
+    categories: Array.isArray(c.categories)
+      ? [...new Set(c.categories.filter((x) => typeof x === 'string').map((x) => x.slice(0, 60)))].slice(0, 20)
+      : [],
+    metricIds: Array.isArray(c.metricIds)
+      ? [...new Set(c.metricIds.filter((x) => typeof x === 'string'))].slice(0, 200)
+      : [],
+  };
+  return out;
+}
+
+/* A view with neither filter shows everything. */
+export function metricsForView(config, metrics) {
+  const c = sanitizeViewConfig(config);
+  let out = metrics;
+  if (c.metricIds.length) {
+    const want = new Set(c.metricIds);
+    out = out.filter((m) => want.has(m.id));
+  } else if (c.categories.length) {
+    const want = new Set(c.categories);
+    out = out.filter((m) => want.has(m.category));
+  }
+  const change = (m) => {
+    const h = m.history || [];
+    if (h.length < 2) return 0;
+    const prev = h[h.length - 2].v;
+    return prev ? ((h[h.length - 1].v - prev) / prev) * 100 : 0;
+  };
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    value: (a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity),
+    change: (a, b) => change(b) - change(a),
+    measured: (a, b) => (b.measuredAt ?? 0) - (a.measuredAt ?? 0),
+  }[c.sort];
+  return out.slice().sort(by);
+}
+
+export const rowToCollector = (r) => ({
+  id: r.id, name: r.name, url: r.url, notes: r.notes,
+  auto: !!r.auto, createdAt: r.created_at, createdBy: r.created_by,
+});
+
+export const rowToRun = (r) => ({
+  id: r.id,
+  collectorId: r.collector_id,
+  collectorName: r.collector_name,
+  trigger: r.trigger_kind,
+  actor: r.actor,
+  status: r.status,
+  detail: r.detail,
+  startedAt: r.started_at,
+  finishedAt: r.finished_at,
+});
+
+export const rowToView = (r) => ({
+  id: r.id,
+  name: r.name,
+  config: (() => { try { return sanitizeViewConfig(JSON.parse(r.config || '{}')); } catch { return sanitizeViewConfig({}); } })(),
+  createdAt: r.created_at,
+  createdBy: r.created_by,
+});

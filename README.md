@@ -7,7 +7,9 @@ A launcher for the StuntListing admin team — like the StuntListing apps page, 
 - **Sorting.** Drag tiles (and sidebar pages) to rearrange, or switch to A→Z / Recently added. Keyboard: `Alt`+arrows moves the focused tile.
 - **Built for heavy users.** Short names, tiny optional notes, no clutter. `/` to search everything, `Enter` opens the first hit, `n` to add a link.
 - **Low-vision friendly.** A−/A+ scales the entire interface from 100% to 225% (persisted per user), high-contrast dark and light themes, full keyboard support, visible focus rings, screen-reader announcements.
-- **Analytics.** An Analytics section mirrors the Notion "Profiles Analytics" database — current value, trend sparkline, change since the previous reading, and the SQL Notion stores for each metric, grouped by category.
+- **Analytics.** Mirrors the Notion "Profiles Analytics" database — current value, trend sparkline, change since the previous reading, and the SQL Notion stores for each metric.
+- **Saved views.** Build your own views over those metrics: pick categories or individual metrics, show them as tiles, a table, bars, or trend lines, sorted how you like. Shared with the team.
+- **Collection.** The Zapier hooks that refresh the numbers become buttons in the app. Click to collect now, or flag a trigger to run daily on its own. Every run is logged with who asked for it.
 - **Desktop-first.** Wide grid and sidebar; it degrades acceptably on small screens but the desktop is the point.
 
 No frontend framework and no build step — the browser gets the same `public/` files that are in the repo.
@@ -105,9 +107,38 @@ If you ever want the numbers refreshed *here* rather than in Notion, that needs
 a route from the Worker to the production MySQL — Cloudflare Hyperdrive plus a
 read-only user would be the path. None is configured today.
 
+### Views
+
+**Analytics → + New view** builds a saved view: name it, pick whole categories
+or individual metrics, and choose how it draws — tiles, table, bar chart, or
+trend lines — and how it sorts. Picking individual metrics overrides the
+category filter. Views are shared with the team and attributed to whoever made
+them, like the link catalog; each gets its own URL (`#/view/<id>`).
+
+### Collection
+
+**Analytics → ⚡ Collection** is where the Zapier hooks live. Add a trigger with
+its catch-hook URL (the same link you would click on the Notion page) and it
+becomes a button:
+
+- **Collect now** posts to that hook, attributed to you.
+- **Run daily** opts a trigger into the cron in `wrangler.toml` (12:00 UTC).
+  Nothing runs automatically until a trigger is flagged, and the scheduled run
+  is logged as `Schedule` rather than a person.
+- **Recent runs** shows trigger, who, manual vs scheduled, when, and result.
+
+Zapier catch hooks answer immediately and do the work afterwards, so a green
+`ok` means *accepted*, not *finished*. The new numbers land in Notion a moment
+later — hit **Sync from Notion** to pull them in. The scheduled run does that
+sync itself, one cycle behind.
+
+Hook URLs are entered in the UI and stored in D1, never committed. They must be
+public `https` — loopback and private ranges are rejected, since the Worker
+fetches them server-side.
+
 ## Data
 
-Four tables in D1: `projects`, `links`, `users` (each user's layout as JSON in `users.prefs`), and `metrics` (the Notion analytics cache). Grab a full dump any time from **Export data (JSON)** in the user menu (`GET /api/export`).
+Seven tables in D1: `projects`, `links`, `users` (each user's layout as JSON in `users.prefs`), `metrics` (the Notion analytics cache), `views`, `collectors`, and `collection_runs`. Grab a full dump any time from **Export data (JSON)** in the user menu (`GET /api/export`).
 
 `seed.json` is loaded exactly once, the first time the app runs against an empty database — a `meta` row records that it happened, so redeploys never duplicate it. Edit it before first launch to change the starting catalog; after that, add links in the UI.
 
@@ -124,6 +155,11 @@ Four tables in D1: `projects`, `links`, `users` (each user's layout as JSON in `
 | `POST`/`PATCH`/`DELETE` | `/api/links[/:id]` | Manage links |
 | `GET` | `/api/metrics` | Cached analytics metrics + last sync time |
 | `POST` | `/api/metrics/sync` | Re-pull the metrics from Notion |
+| `GET` | `/api/views` | Saved views |
+| `POST`/`PATCH`/`DELETE` | `/api/views[/:id]` | Manage views |
+| `GET` | `/api/collectors` | Triggers + the recent run log |
+| `POST`/`PATCH`/`DELETE` | `/api/collectors[/:id]` | Manage triggers |
+| `POST` | `/api/collect[/:id]` | Fire one trigger, or all of them |
 | `GET` | `/api/export` | Full JSON dump |
 
 Deleting a page moves its links to Unsorted rather than deleting them. Deleting either scrubs the id out of every user's saved layout, so nobody is left with a dangling favorite.

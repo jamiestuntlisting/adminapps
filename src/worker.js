@@ -13,6 +13,7 @@ import {
   now, uid, str, isHex, slugify, cleanUrl,
   defaultPrefs, sanitizePrefs, rowToProject, rowToLink,
   parseHistory, notionProp, rowToMetric,
+  cleanHookUrl, sanitizeViewConfig, rowToCollector, rowToRun, rowToView,
 } from './lib.js';
 
 const COOKIE = 'alsid';
@@ -201,6 +202,71 @@ async function storeMetrics(env, rows) {
     'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
     .bind('metrics_synced_at', String(stamp)));
   await env.DB.batch(stmts);
+}
+
+/* ---------- collection ---------- */
+
+/*
+ * Fires one collector's webhook. Zapier catch hooks return immediately and do
+ * the work asynchronously, so a 200 means "accepted", not "the numbers are
+ * updated" — the new values arrive in Notion later and land here on the next
+ * Notion sync. Every attempt is logged with who asked for it.
+ */
+async function runCollector(env, collector, { actor, trigger }) {
+  const runId = uid();
+  const startedAt = now();
+  await env.DB.prepare(
+    `INSERT INTO collection_runs (id, collector_id, collector_name, trigger_kind, actor, status, detail, started_at, finished_at)
+     VALUES (?, ?, ?, ?, ?, 'running', '', ?, NULL)`)
+    .bind(runId, collector.id, collector.name, trigger, actor, startedAt).run();
+
+  let status = 'ok';
+  let detail = '';
+  try {
+    const res = await fetch(collector.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'adminapps', collector: collector.name, actor, trigger, at: new Date(startedAt).toISOString() }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const body = (await res.text().catch(() => '')).slice(0, 300);
+    if (!res.ok) {
+      status = 'error';
+      detail = `HTTP ${res.status}${body ? ' — ' + body : ''}`;
+    } else {
+      detail = body || `HTTP ${res.status}`;
+    }
+  } catch (e) {
+    status = 'error';
+    detail = e.name === 'TimeoutError' ? 'Timed out after 20s' : (e.message || 'Request failed');
+  }
+
+  await env.DB.prepare(
+    'UPDATE collection_runs SET status = ?, detail = ?, finished_at = ? WHERE id = ?')
+    .bind(status, detail, now(), runId).run();
+
+  return { id: runId, collectorName: collector.name, status, detail };
+}
+
+/* The daily cron: only collectors explicitly marked auto, then a Notion re-pull. */
+async function scheduledCollection(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM collectors WHERE auto = 1 ORDER BY sort_order, name').all();
+  const collectors = (results || []).map(rowToCollector);
+  for (const c of collectors) {
+    await runCollector(env, c, { actor: 'Schedule', trigger: 'scheduled' });
+  }
+  // Zapier writes into Notion asynchronously, so this pull may lag one cycle
+  // behind a collector that just fired. The next run picks it up.
+  if (env.NOTION_TOKEN) {
+    try {
+      const rows = await fetchNotionMetrics(env);
+      if (rows.length) await storeMetrics(env, rows);
+    } catch (e) {
+      console.error('scheduled notion sync failed:', e.message);
+    }
+  }
+  return collectors.length;
 }
 
 /* ---------- api ---------- */
@@ -405,6 +471,119 @@ async function api(request, env, url) {
     }
   }
 
+  /* ----- collectors + runs ----- */
+
+  if (path === '/api/collectors' && method === 'GET') {
+    const [cols, runs] = await env.DB.batch([
+      env.DB.prepare('SELECT * FROM collectors ORDER BY sort_order, name'),
+      env.DB.prepare('SELECT * FROM collection_runs ORDER BY started_at DESC LIMIT 40'),
+    ]);
+    return json({
+      collectors: (cols.results || []).map(rowToCollector),
+      runs: (runs.results || []).map(rowToRun),
+    });
+  }
+
+  if (path === '/api/collectors' && method === 'POST') {
+    const name = str(body.name, 60);
+    const url2 = cleanHookUrl(body.url, { allowInsecure: !!env.ALLOW_INSECURE_HOOKS });
+    if (!name) return fail(400, 'Give the trigger a name.');
+    if (!url2) return fail(400, 'Needs a public https webhook URL.');
+    const c = {
+      id: uid(), name, url: url2, notes: str(body.notes, 140),
+      auto: body.auto ? 1 : 0, createdAt: now(), createdBy: user.name,
+    };
+    await env.DB.prepare(
+      'INSERT INTO collectors (id, name, url, notes, auto, sort_order, created_at, created_by) VALUES (?, ?, ?, ?, ?, 0, ?, ?)')
+      .bind(c.id, c.name, c.url, c.notes, c.auto, c.createdAt, c.createdBy).run();
+    return json(rowToCollector({ ...c, created_at: c.createdAt, created_by: c.createdBy }));
+  }
+
+  if (parts[1] === 'collectors' && parts[2] && method === 'PATCH') {
+    const row = await env.DB.prepare('SELECT * FROM collectors WHERE id = ?').bind(parts[2]).first();
+    if (!row) return fail(404, 'Trigger not found.');
+    const next = { ...row };
+    if ('name' in body) {
+      const name = str(body.name, 60);
+      if (!name) return fail(400, 'Give the trigger a name.');
+      next.name = name;
+    }
+    if ('url' in body) {
+      const u = cleanHookUrl(body.url, { allowInsecure: !!env.ALLOW_INSECURE_HOOKS });
+      if (!u) return fail(400, 'Needs a public https webhook URL.');
+      next.url = u;
+    }
+    if ('notes' in body) next.notes = str(body.notes, 140);
+    if ('auto' in body) next.auto = body.auto ? 1 : 0;
+    await env.DB.prepare('UPDATE collectors SET name = ?, url = ?, notes = ?, auto = ? WHERE id = ?')
+      .bind(next.name, next.url, next.notes, next.auto, row.id).run();
+    return json(rowToCollector(next));
+  }
+
+  if (parts[1] === 'collectors' && parts[2] && method === 'DELETE') {
+    const row = await env.DB.prepare('SELECT id FROM collectors WHERE id = ?').bind(parts[2]).first();
+    if (!row) return fail(404, 'Trigger not found.');
+    await env.DB.prepare('DELETE FROM collectors WHERE id = ?').bind(row.id).run();
+    return json({ ok: true });
+  }
+
+  /* Fire one collector, or every one of them. Always attributed to the caller. */
+  if (parts[1] === 'collect' && method === 'POST') {
+    const id = parts[2];
+    const sql = id
+      ? env.DB.prepare('SELECT * FROM collectors WHERE id = ?').bind(id)
+      : env.DB.prepare('SELECT * FROM collectors ORDER BY sort_order, name');
+    const { results } = await sql.all();
+    const collectors = (results || []).map(rowToCollector);
+    if (!collectors.length) return fail(404, id ? 'Trigger not found.' : 'No triggers configured yet.');
+    const out = [];
+    for (const c of collectors) {
+      out.push(await runCollector(env, c, { actor: user.name, trigger: 'manual' }));
+    }
+    return json({ ok: out.every((r) => r.status === 'ok'), runs: out });
+  }
+
+  /* ----- views ----- */
+
+  if (path === '/api/views' && method === 'GET') {
+    const { results } = await env.DB.prepare('SELECT * FROM views ORDER BY sort_order, name').all();
+    return json({ views: (results || []).map(rowToView) });
+  }
+
+  if (path === '/api/views' && method === 'POST') {
+    const name = str(body.name, 60);
+    if (!name) return fail(400, 'Give the view a name.');
+    const config = sanitizeViewConfig(body.config);
+    const v = { id: uid(), name, config, createdAt: now(), createdBy: user.name };
+    await env.DB.prepare(
+      'INSERT INTO views (id, name, config, sort_order, created_at, created_by) VALUES (?, ?, ?, 0, ?, ?)')
+      .bind(v.id, v.name, JSON.stringify(config), v.createdAt, v.createdBy).run();
+    return json(v);
+  }
+
+  if (parts[1] === 'views' && parts[2] && method === 'PATCH') {
+    const row = await env.DB.prepare('SELECT * FROM views WHERE id = ?').bind(parts[2]).first();
+    if (!row) return fail(404, 'View not found.');
+    let name = row.name;
+    if ('name' in body) {
+      name = str(body.name, 60);
+      if (!name) return fail(400, 'Give the view a name.');
+    }
+    const config = 'config' in body
+      ? sanitizeViewConfig(body.config)
+      : sanitizeViewConfig(JSON.parse(row.config || '{}'));
+    await env.DB.prepare('UPDATE views SET name = ?, config = ? WHERE id = ?')
+      .bind(name, JSON.stringify(config), row.id).run();
+    return json(rowToView({ ...row, name, config: JSON.stringify(config) }));
+  }
+
+  if (parts[1] === 'views' && parts[2] && method === 'DELETE') {
+    const row = await env.DB.prepare('SELECT id FROM views WHERE id = ?').bind(parts[2]).first();
+    if (!row) return fail(404, 'View not found.');
+    await env.DB.prepare('DELETE FROM views WHERE id = ?').bind(row.id).run();
+    return json({ ok: true });
+  }
+
   /* ----- links ----- */
 
   const validProjectId = async (v) => {
@@ -475,6 +654,11 @@ async function api(request, env, url) {
 /* ---------- entry ---------- */
 
 export default {
+  /* Cloudflare cron. Does nothing unless a collector is marked auto. */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(scheduledCollection(env).catch((e) => console.error('scheduled run failed:', e)));
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 

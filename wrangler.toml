@@ -7,6 +7,11 @@ compatibility_date = "2025-11-01"
 [vars]
 NOTION_DATABASE_ID = "b7e294a6-9940-465e-9412-3dd7f1642780"
 
+# Daily collection run. Fires only collectors an admin has switched to "auto",
+# so this is a no-op until someone opts one in.
+[triggers]
+crons = ["0 12 * * *"]
+
 [assets]
 directory = "./public"
 binding = "ASSETS"

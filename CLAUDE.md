@@ -28,3 +28,8 @@ Cloudflare Worker + D1. See README.md for setup, deploy, and API.
 - Analytics is a cache of the Notion "Profiles Analytics" database. Its SQL is
   MySQL against the production `db` and is displayed, never executed — the
   Worker has no route to that database.
+- Collector URLs are fired server-side, so `cleanHookUrl` must keep rejecting
+  loopback and private ranges. `ALLOW_INSECURE_HOOKS` relaxes that for local
+  tests only; never set it in production.
+- The cron fires only collectors flagged `auto`. Adding a collector must not
+  make anything run on its own.
